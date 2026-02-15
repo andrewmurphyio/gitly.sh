@@ -67,6 +67,11 @@ app.use('*', async (c, next) => {
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin')
   // Permissions policy - disable sensitive browser features
   c.header('Permissions-Policy', 'geolocation=(), camera=(), microphone=()')
+  // Prevent caching of error responses (4xx/5xx) to avoid CDN/browser caching stale errors
+  const status = c.res.status
+  if (status >= 400) {
+    c.header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  }
 })
 
 // Health check (no rate limiting - used for monitoring)
@@ -217,7 +222,8 @@ app.get('/:slug',
               'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
               'Content-Security-Policy': "default-src 'none'",
               'Referrer-Policy': 'strict-origin-when-cross-origin',
-              'Permissions-Policy': 'geolocation=(), camera=(), microphone=()'
+              'Permissions-Policy': 'geolocation=(), camera=(), microphone=()',
+              'Cache-Control': 'no-store, no-cache, must-revalidate'
             }
           }
         )
