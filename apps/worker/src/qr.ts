@@ -3,6 +3,67 @@ import QRCode from 'qrcode'
 import { PhotonImage, SamplingFilter, resize, watermark } from '@cf-wasm/photon/workerd'
 import { validateUrlForFetch, safeFetch } from './url-validator'
 
+// Security: Allowed Content-Type values for logo images
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+
+// Magic bytes signatures for image format detection (defense-in-depth)
+const IMAGE_MAGIC_BYTES: Array<{ type: string; signature: number[] }> = [
+  { type: 'image/png', signature: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] }, // PNG: \x89PNG\r\n\x1a\n
+  { type: 'image/jpeg', signature: [0xff, 0xd8, 0xff] }, // JPEG: starts with FF D8 FF
+  { type: 'image/gif', signature: [0x47, 0x49, 0x46, 0x38] }, // GIF: GIF8 (GIF87a or GIF89a)
+  { type: 'image/webp', signature: [0x52, 0x49, 0x46, 0x46] }, // WebP: RIFF (need to check WEBP at offset 8)
+]
+
+/**
+ * Validate Content-Type header against allowed image types
+ * @throws Error if Content-Type is missing or not an allowed image type
+ */
+function validateImageContentType(response: Response): string {
+  const contentType = response.headers.get('content-type')?.split(';')[0]?.trim()
+  if (!contentType || !ALLOWED_IMAGE_TYPES.includes(contentType)) {
+    throw new Error(`Invalid logo content-type: ${contentType ?? 'missing'}`)
+  }
+  return contentType
+}
+
+/**
+ * Detect image type from magic bytes (defense-in-depth)
+ * @returns The detected MIME type, or null if not recognized
+ */
+function detectImageTypeFromBytes(bytes: Uint8Array): string | null {
+  if (bytes.length < 12) return null
+
+  for (const { type, signature } of IMAGE_MAGIC_BYTES) {
+    const matches = signature.every((byte, index) => bytes[index] === byte)
+    if (matches) {
+      // WebP requires additional check: bytes 8-11 should be "WEBP"
+      if (type === 'image/webp') {
+        const webpSignature = [0x57, 0x45, 0x42, 0x50] // "WEBP"
+        const isWebP = webpSignature.every((byte, index) => bytes[8 + index] === byte)
+        if (isWebP) return type
+        continue // Not actually WebP, check other formats
+      }
+      return type
+    }
+  }
+
+  return null
+}
+
+/**
+ * Validate that image bytes match the expected Content-Type (defense-in-depth)
+ * @throws Error if magic bytes don't match declared Content-Type
+ */
+function validateImageMagicBytes(bytes: Uint8Array, declaredType: string): void {
+  const detectedType = detectImageTypeFromBytes(bytes)
+  if (!detectedType) {
+    throw new Error('Failed to detect image format from file contents')
+  }
+  if (detectedType !== declaredType) {
+    throw new Error(`Content-Type mismatch: declared ${declaredType}, detected ${detectedType}`)
+  }
+}
+
 type Bindings = {
   LINKS: KVNamespace
 }
@@ -116,7 +177,13 @@ async function compositeLogoOnQR(
     throw new Error(`Failed to fetch logo: ${logoResponse.status}`)
   }
   
+  // Security: Validate Content-Type before processing
+  const declaredType = validateImageContentType(logoResponse)
+  
   const logoBytes = new Uint8Array(await logoResponse.arrayBuffer())
+  
+  // Security: Validate magic bytes match declared Content-Type (defense-in-depth)
+  validateImageMagicBytes(logoBytes, declaredType)
   
   // Load QR code as PhotonImage
   const qrImage = PhotonImage.new_from_byteslice(new Uint8Array(qrBuffer))
@@ -209,8 +276,15 @@ async function fetchLogoAsDataUri(logoUrl: string): Promise<string> {
     throw new Error(`Failed to fetch logo: ${response.status}`)
   }
 
-  const contentType = response.headers.get('content-type') || 'image/png'
+  // Security: Validate Content-Type before processing
+  const contentType = validateImageContentType(response)
+  
   const arrayBuffer = await response.arrayBuffer()
+  const bytes = new Uint8Array(arrayBuffer)
+  
+  // Security: Validate magic bytes match declared Content-Type (defense-in-depth)
+  validateImageMagicBytes(bytes, contentType)
+  
   const base64 = arrayBufferToBase64(arrayBuffer)
 
   return `data:${contentType};base64,${base64}`
