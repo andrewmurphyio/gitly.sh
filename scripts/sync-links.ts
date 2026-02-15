@@ -4,7 +4,7 @@
  *
  * Replaces the fragile bash CSV parser with proper validation:
  * - Real CSV parsing (handles commas in URLs, quoted fields)
- * - Slug validation per ADR-004 (3-50 chars, alphanumeric + hyphens)
+ * - Slug validation (1-50 chars, alphanumeric + hyphens, see #119)
  * - URL validation (https:// only)
  * - Duplicate slug detection across all users
  * - Syncs to both KV (for fast redirects) and D1 (for analytics/admin)
@@ -46,40 +46,37 @@ interface ValidationError {
 // Validation
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ADR-004: Custom slugs: 3-50 chars, alphanumeric + hyphens, no leading/trailing hyphens
-const SLUG_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,48}[a-zA-Z0-9]$/;
-
 // Reserved slugs that would conflict with API routes
 const RESERVED_SLUGS = new Set(["health", "api", "admin", "_"]);
 
+/**
+ * Validate a custom slug (1-50 chars).
+ * - Single char: must be alphanumeric
+ * - 2+ chars: alphanumeric + hyphens, no leading/trailing hyphens
+ * 
+ * Updated via issue #119 to allow 1-2 character slugs.
+ */
 function validateSlug(slug: string): string | null {
-  if (!slug || slug.trim() === "") {
-    return "Slug is empty";
-  }
-
   const trimmed = slug.trim();
 
-  if (trimmed.length < 3) {
-    return "Slug must be at least 3 characters";
+  if (!trimmed) return "Slug is empty";
+  if (trimmed.length > 50) return `Slug too long (${trimmed.length}/50)`;
+
+  // Single char: must be alphanumeric
+  if (trimmed.length === 1) {
+    if (!/^[a-zA-Z0-9]$/.test(trimmed)) {
+      return "Single-char slug must be alphanumeric";
+    }
+    return null; // Valid
   }
 
-  if (trimmed.length > 50) {
-    return `Slug too long (${trimmed.length} chars, max 50)`;
-  }
-
-  // Check for valid characters and no leading/trailing hyphens
+  // 2+ chars: alphanumeric + hyphens, no leading/trailing hyphens
   if (!/^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$/.test(trimmed)) {
-    return "Slug must be alphanumeric + hyphens, no leading/trailing hyphens";
+    return "Invalid format: use alphanumeric + hyphens, no leading/trailing hyphens";
   }
 
-  // No consecutive hyphens
-  if (/--/.test(trimmed)) {
-    return "Slug cannot contain consecutive hyphens";
-  }
-
-  if (RESERVED_SLUGS.has(trimmed.toLowerCase())) {
-    return `Slug "${trimmed}" is reserved`;
-  }
+  if (/--/.test(trimmed)) return "No consecutive hyphens";
+  if (RESERVED_SLUGS.has(trimmed.toLowerCase())) return `"${trimmed}" is reserved`;
 
   return null;
 }
