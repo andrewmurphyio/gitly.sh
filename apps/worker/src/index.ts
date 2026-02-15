@@ -2,11 +2,16 @@ import { Hono } from 'hono'
 import { handleQR } from './qr'
 import { parseUserAgent, hashIP } from './ua-parser'
 import { constantTimeCompare } from './crypto'
+import { createRateLimiter, getClientIP, compositeKey, RateLimitBinding } from './rate-limit'
 
 type Bindings = {
   LINKS: KVNamespace
   DB: D1Database
   ANALYTICS_API_KEY: string // Secret for analytics export
+  // Rate limiting bindings (Cloudflare Workers Rate Limiting API)
+  QR_RATE_LIMITER: RateLimitBinding
+  ANALYTICS_RATE_LIMITER: RateLimitBinding
+  REDIRECT_RATE_LIMITER: RateLimitBinding
 }
 
 interface LinkData {
@@ -54,14 +59,57 @@ app.use('*', async (c, next) => {
   c.header('X-Frame-Options', 'DENY')
 })
 
-// Health check
+// Health check (no rate limiting - used for monitoring)
 app.get('/health', (c) => c.json({ status: 'ok' }))
 
-// QR code endpoint - must be before generic redirect handler
-app.get('/:slug/qr', handleQR)
+// QR code endpoint - strict rate limiting (CPU-expensive with logo processing)
+// Limit: 10 requests per 10 seconds per IP+slug combo
+app.get('/:slug/qr', 
+  createRateLimiter(
+    (c) => c.env.QR_RATE_LIMITER,
+    {
+      keyFunc: (c) => {
+        const ip = getClientIP(c)
+        const slug = c.req.param('slug')
+        return compositeKey(ip, slug)
+      },
+      errorResponse: (c) => c.json(
+        { 
+          error: 'Too Many Requests',
+          message: 'QR code generation rate limit exceeded. Please wait before retrying.',
+          retryAfter: 10
+        },
+        429,
+        { 'Retry-After': '10' }
+      )
+    }
+  ),
+  handleQR
+)
 
-// Analytics API - protected by API key
-app.get('/api/analytics', async (c) => {
+// Analytics API - protected by API key with rate limiting
+// Limit: 30 requests per 60 seconds per API key
+app.get('/api/analytics',
+  createRateLimiter(
+    (c) => c.env.ANALYTICS_RATE_LIMITER,
+    {
+      keyFunc: (c) => {
+        // Rate limit by API key (or IP if no auth header)
+        const authHeader = c.req.header('Authorization') || ''
+        return authHeader || getClientIP(c)
+      },
+      errorResponse: (c) => c.json(
+        { 
+          error: 'Too Many Requests',
+          message: 'Analytics API rate limit exceeded. Limit: 30 requests per minute.',
+          retryAfter: 60
+        },
+        429,
+        { 'Retry-After': '60' }
+      )
+    }
+  ),
+  async (c) => {
   // Verify API key using constant-time comparison to prevent timing attacks
   const authHeader = c.req.header('Authorization') || ''
   const expected = `Bearer ${c.env.ANALYTICS_API_KEY}`
@@ -113,8 +161,40 @@ app.get('/api/analytics', async (c) => {
   }
 })
 
-// Redirect handler with click tracking
-app.get('/:slug', async (c) => {
+// Redirect handler with click tracking and rate limiting
+// Limit: 60 requests per 10 seconds per IP+slug combo (prevents click inflation)
+app.get('/:slug',
+  createRateLimiter(
+    (c) => c.env.REDIRECT_RATE_LIMITER,
+    {
+      keyFunc: (c) => {
+        const ip = getClientIP(c)
+        const slug = c.req.param('slug')
+        return compositeKey(ip, slug)
+      },
+      errorResponse: (c) => {
+        // Return a simple HTML page for redirect rate limits (user-facing)
+        return new Response(
+          `<!DOCTYPE html>
+<html>
+<head><title>Rate Limited</title></head>
+<body>
+<h1>Too Many Requests</h1>
+<p>You're clicking too fast! Please wait a moment and try again.</p>
+</body>
+</html>`,
+          {
+            status: 429,
+            headers: {
+              'Content-Type': 'text/html',
+              'Retry-After': '10'
+            }
+          }
+        )
+      }
+    }
+  ),
+  async (c) => {
   const slug = c.req.param('slug')
   
   // Skip reserved slugs (case-insensitive, matches scripts/sync-links.ts validation)
