@@ -31,6 +31,9 @@ interface ClickRow {
 // Security: Limit stored User-Agent length to prevent storage abuse
 const MAX_UA_LENGTH = 512
 
+// Reserved slugs that would conflict with API routes (must match scripts/sync-links.ts)
+const RESERVED_SLUGS = new Set(['health', 'api', 'admin', '_'])
+
 // Security: Validate redirect URLs to prevent open redirect attacks
 function isValidRedirectUrl(url: string): boolean {
   try {
@@ -113,8 +116,8 @@ app.get('/api/analytics', async (c) => {
 app.get('/:slug', async (c) => {
   const slug = c.req.param('slug')
   
-  // Skip API routes
-  if (slug === 'api' || slug === 'health') {
+  // Skip reserved slugs (case-insensitive, matches scripts/sync-links.ts validation)
+  if (RESERVED_SLUGS.has(slug.toLowerCase())) {
     return c.notFound()
   }
   
