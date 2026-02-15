@@ -1,0 +1,64 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "links/**"
+
+jobs:
+  validate-authorization:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate PR author can only edit their own folder
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Get PR author
+          AUTHOR="${{ github.event.pull_request.user.login }}"
+          echo "PR Author: $AUTHOR"
+          
+          # Get changed files in this PR
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Track validation errors
+          ERRORS=0
+          
+          for path in $CHANGED_FILES; do
+            # Only validate files in links/ directory
+            if [[ $path == links/* ]]; then
+              # Extract the username folder from the path (links/<username>/...)
+              FOLDER_USER=$(echo "$path" | cut -d'/' -f2)
+              
+              # Check if folder matches PR author (case-insensitive)
+              if [[ "${FOLDER_USER,,}" != "${AUTHOR,,}" ]]; then
+                echo "❌ Error: Cannot modify '$path' - you can only edit files in links/$AUTHOR/"
+                ERRORS=$((ERRORS + 1))
+              else
+                echo "✅ Allowed: $path"
+              fi
+            fi
+          done
+          
+          if [ $ERRORS -gt 0 ]; then
+            echo ""
+            echo "═══════════════════════════════════════════════════════════"
+            echo "❌ VALIDATION FAILED"
+            echo "═══════════════════════════════════════════════════════════"
+            echo ""
+            echo "You can only modify files in your own folder: links/$AUTHOR/"
+            echo ""
+            echo "If you need to claim a username folder that doesn't match your"
+            echo "GitHub username, please open an issue to request it."
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All changes are within authorized paths"
