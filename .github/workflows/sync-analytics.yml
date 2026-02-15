@@ -24,12 +24,21 @@ jobs:
         with:
           node-version: '20'
       
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
       - name: Fetch and sync analytics
+        working-directory: scripts
         env:
           ANALYTICS_API_URL: ${{ secrets.ANALYTICS_API_URL }}
           ANALYTICS_API_KEY: ${{ secrets.ANALYTICS_API_KEY }}
         run: |
-          node scripts/sync-analytics.mjs
+          pnpm sync-analytics
       
       - name: Commit and push changes
         run: |
