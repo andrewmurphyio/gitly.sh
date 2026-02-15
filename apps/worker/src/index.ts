@@ -27,8 +27,9 @@ app.get('/:slug', async (c) => {
     return c.notFound()
   }
   
-  // 301 permanent redirect
-  return c.redirect(url, 301)
+  // 302 temporary redirect - safer for user-generated content
+  // (301s are cached by browsers indefinitely, making malicious link removal ineffective)
+  return c.redirect(url, 302)
 })
 
 // Root - could be a landing page later
