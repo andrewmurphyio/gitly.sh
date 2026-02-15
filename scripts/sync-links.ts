@@ -68,20 +68,13 @@ function validateSlug(slug: string): string | null {
   }
 
   // Check for valid characters and no leading/trailing hyphens
-  if (trimmed.length <= 2) {
-    // Short slugs: just alphanumeric
-    if (!/^[a-zA-Z0-9]+$/.test(trimmed)) {
-      return "Slug must be alphanumeric (hyphens allowed only for 3+ char slugs)";
-    }
-  } else {
-    // 3+ chars: alphanumeric + hyphens, but not leading/trailing
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$/.test(trimmed)) {
-      return "Slug must be alphanumeric + hyphens, no leading/trailing hyphens";
-    }
-    // No consecutive hyphens
-    if (/--/.test(trimmed)) {
-      return "Slug cannot contain consecutive hyphens";
-    }
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$/.test(trimmed)) {
+    return "Slug must be alphanumeric + hyphens, no leading/trailing hyphens";
+  }
+
+  // No consecutive hyphens
+  if (/--/.test(trimmed)) {
+    return "Slug cannot contain consecutive hyphens";
   }
 
   if (RESERVED_SLUGS.has(trimmed.toLowerCase())) {
