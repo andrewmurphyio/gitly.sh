@@ -92,10 +92,18 @@ function detectOS(ua: string): string {
 
 /**
  * Hash an IP address for unique visitor tracking.
- * Uses SHA-256 with a daily salt to prevent long-term tracking.
+ * Uses SHA-256 with a secret pepper and daily salt to prevent:
+ * - Long-term tracking (daily rotation)
+ * - Pre-computation attacks (secret pepper)
+ * 
+ * @param ip - The visitor's IP address
+ * @param date - Date string for daily rotation (YYYY-MM-DD)
+ * @param secret - Secret pepper from environment variable (HASH_SECRET)
  */
-export async function hashIP(ip: string, date: string): Promise<string> {
-  const salt = `gitly.sh:${date}` // Daily rotation
+export async function hashIP(ip: string, date: string, secret: string): Promise<string> {
+  // Salt includes secret pepper to prevent pre-computation attacks
+  // Even if attacker knows the IP, they can't compute expected hashes without the secret
+  const salt = `gitly.sh:${secret}:${date}`
   const data = new TextEncoder().encode(`${salt}:${ip}`)
   const hash = await crypto.subtle.digest('SHA-256', data)
   const hashArray = Array.from(new Uint8Array(hash))

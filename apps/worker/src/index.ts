@@ -8,6 +8,7 @@ type Bindings = {
   LINKS: KVNamespace
   DB: D1Database
   ANALYTICS_API_KEY: string // Secret for analytics export
+  HASH_SECRET: string // Secret pepper for visitor IP hashing (prevents pre-computation attacks)
   // Rate limiting bindings (Cloudflare Workers Rate Limiting API)
   QR_RATE_LIMITER: RateLimitBinding
   ANALYTICS_RATE_LIMITER: RateLimitBinding
@@ -246,9 +247,9 @@ async function recordClick(c: any, slug: string): Promise<void> {
     // Parse user agent
     const parsed = parseUserAgent(ua)
     
-    // Hash IP for unique visitor tracking (with daily salt)
+    // Hash IP for unique visitor tracking (with daily salt + secret pepper)
     const ip = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown'
-    const visitorHash = await hashIP(ip, today)
+    const visitorHash = await hashIP(ip, today, c.env.HASH_SECRET)
 
     // Insert click record
     await c.env.DB.prepare(`

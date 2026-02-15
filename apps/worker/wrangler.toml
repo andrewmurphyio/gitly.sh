@@ -21,6 +21,8 @@ database_id = "1e16ea5f-2890-4d1b-99a3-31f50925fe31"
 
 # Environment variables (set via wrangler secret)
 # ANALYTICS_API_KEY - API key for analytics export endpoint
+# HASH_SECRET - Secret pepper for visitor IP hashing (prevents pre-computation attacks)
+#               Generate with: openssl rand -hex 32
 
 # Rate limiting bindings (Cloudflare Workers Rate Limiting API)
 # See: https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
