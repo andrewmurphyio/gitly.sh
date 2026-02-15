@@ -43,9 +43,26 @@ Fine-grained GitHub PAT with:
 - Fetches clicks from the last hour (with overlap buffer to avoid gaps)
 - Appends to today's CSV (creates file if missing)
 
+### Totals File
+
+In addition to daily CSVs, a `total.csv` file aggregates all-time click counts per slug:
+
+```
+links/<username>/analytics/total.csv
+```
+
+Format:
+```csv
+slug,clicks
+abc123,1542
+xyz789,891
+```
+
+Two columns, sorted by clicks descending. Regenerated from daily CSVs on each sync run (overwrites previous).
+
 ### Scope
 
-Raw click data only. No aggregation or summary files for MVP.
+Raw click data in daily CSVs, plus aggregated totals. No time-period breakdowns for MVP.
 
 ## Consequences
 
@@ -64,7 +81,7 @@ Raw click data only. No aggregation or summary files for MVP.
 
 ### Deferred
 
-- `summary.csv` with daily/weekly aggregates
+- Time-period breakdowns (daily/weekly/monthly summaries)
 - Webhook-based real-time sync
 - User-configurable export frequency
 - Compression of old months (`.csv.gz`)
