@@ -31,6 +31,16 @@ interface ClickRow {
 // Security: Limit stored User-Agent length to prevent storage abuse
 const MAX_UA_LENGTH = 512
 
+// Security: Validate redirect URLs to prevent open redirect attacks
+function isValidRedirectUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === "https:"
+  } catch {
+    return false
+  }
+}
+
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Security headers middleware
@@ -122,6 +132,12 @@ app.get('/:slug', async (c) => {
   } catch {
     // Legacy format: raw URL string
     linkData = { url: linkDataRaw, createdAt: 0, createdBy: 'unknown' }
+  }
+
+  // Security: Validate URL before redirecting (prevents javascript:, data:, etc.)
+  if (!isValidRedirectUrl(linkData.url)) {
+    console.error(`Invalid redirect URL for slug ${slug}: ${linkData.url}`)
+    return c.notFound()
   }
 
   // Record the click asynchronously (don't block redirect)
