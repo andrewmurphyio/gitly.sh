@@ -6,6 +6,7 @@ on:
     paths:
       - "links/**/*.csv"
       - "apps/worker/**"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
 jobs:
@@ -23,22 +24,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "pnpm"
 
       - name: Install dependencies
         run: pnpm install
 
       - name: Parse CSVs and sync to KV
         run: |
-          # Find all links.csv files and parse them
           for csv in links/*/links.csv; do
             if [ -f "$csv" ]; then
               echo "Processing $csv"
-              # Skip header, read slug,url pairs
               tail -n +2 "$csv" | while IFS=, read -r slug url rest; do
                 if [ -n "$slug" ] && [ -n "$url" ]; then
                   echo "  $slug -> $url"
-                  # Write to KV
                   curl -s -X PUT \
                     "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/storage/kv/namespaces/${{ secrets.KV_NAMESPACE_ID }}/values/$slug" \
                     -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
@@ -58,3 +55,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/worker
+
