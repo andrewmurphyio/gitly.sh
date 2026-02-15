@@ -8,6 +8,7 @@ routes = [
 ]
 
 # KV namespace for link storage
+# The id is provided via KV_NAMESPACE_ID environment variable
 [[kv_namespaces]]
 binding = "LINKS"
-id = "" # Set via GitHub Actions or wrangler cli
+id = "$KV_NAMESPACE_ID"
