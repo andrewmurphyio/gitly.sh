@@ -22,6 +22,30 @@ database_id = "1e16ea5f-2890-4d1b-99a3-31f50925fe31"
 # Environment variables (set via wrangler secret)
 # ANALYTICS_API_KEY - API key for analytics export endpoint
 
+# Rate limiting bindings (Cloudflare Workers Rate Limiting API)
+# See: https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
+
+# QR endpoint - strict limit (CPU-expensive with logo processing)
+# 10 requests per 10 seconds per key
+[[ratelimits]]
+name = "QR_RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 10, period = 10 }
+
+# Analytics API - moderate limit (authenticated but could be abused)
+# 30 requests per 60 seconds per key
+[[ratelimits]]
+name = "ANALYTICS_RATE_LIMITER"
+namespace_id = "1002"
+simple = { limit = 30, period = 60 }
+
+# Redirect endpoint - lenient limit (normal traffic, prevent click inflation)
+# 60 requests per 10 seconds per key
+[[ratelimits]]
+name = "REDIRECT_RATE_LIMITER"
+namespace_id = "1003"
+simple = { limit = 60, period = 10 }
+
 # Observability configuration
 # https://developers.cloudflare.com/workers/observability/
 [observability]
