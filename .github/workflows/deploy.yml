@@ -45,8 +45,4 @@ jobs:
           workingDirectory: apps/worker
           preCommands: |
             sed -i "s/\$KV_NAMESPACE_ID/${{ secrets.KV_NAMESPACE_ID }}/g" wrangler.toml
-            # Verify replacement worked
-            if grep -q '\$KV_NAMESPACE_ID' wrangler.toml; then
-              echo "ERROR: KV_NAMESPACE_ID placeholder was not replaced"
-              exit 1
-            fi
+            if grep -q '\$KV_NAMESPACE_ID' wrangler.toml; then echo "ERROR: KV_NAMESPACE_ID placeholder was not replaced"; exit 1; fi
