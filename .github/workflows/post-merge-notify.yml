@@ -1,0 +1,93 @@
+name: Post-Merge Notification
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+    paths:
+      - "links/**/*.csv"
+
+jobs:
+  notify-new-links:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find new and modified links
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Get the diff for links.csv files
+          DIFF=$(git diff HEAD~1 HEAD -- 'links/**/links.csv')
+          
+          if [ -z "$DIFF" ]; then
+            echo "No changes to links.csv files"
+            exit 0
+          fi
+          
+          # Extract removed lines (old values) - exclude header and diff markers
+          REMOVED=$(echo "$DIFF" | grep '^-' | grep -v '^---' | grep -v '^-slug,url' | cut -c2- || true)
+          
+          # Extract added lines (new values) - exclude header and diff markers
+          ADDED=$(echo "$DIFF" | grep '^+' | grep -v '^+++' | grep -v '^+slug,url' | cut -c2- || true)
+          
+          if [ -z "$ADDED" ]; then
+            echo "No new or modified links found"
+            exit 0
+          fi
+          
+          # Build arrays of slugs from removed lines for modification detection
+          declare -A REMOVED_SLUGS
+          while IFS=',' read -r slug url; do
+            [ -n "$slug" ] && REMOVED_SLUGS["$slug"]="$url"
+          done <<< "$REMOVED"
+          
+          # Categorize links as NEW or MODIFIED
+          NEW_LINKS=""
+          MODIFIED_LINKS=""
+          
+          while IFS=',' read -r slug url; do
+            [ -z "$slug" ] && continue
+            
+            if [ -n "${REMOVED_SLUGS[$slug]:-}" ]; then
+              # Slug existed before - this is a modification
+              OLD_URL="${REMOVED_SLUGS[$slug]}"
+              if [ "$OLD_URL" != "$url" ]; then
+                MODIFIED_LINKS+="- [gitly.sh/$slug](https://gitly.sh/$slug) → $url
+            "
+              fi
+            else
+              # Slug is new
+              NEW_LINKS+="- [gitly.sh/$slug](https://gitly.sh/$slug) → $url
+            "
+            fi
+          done <<< "$ADDED"
+          
+          # Build comment body
+          COMMENT=""
+          
+          if [ -n "$NEW_LINKS" ]; then
+            COMMENT+="## 🎉 New links are live!
+          
+          $NEW_LINKS
+          "
+          fi
+          
+          if [ -n "$MODIFIED_LINKS" ]; then
+            COMMENT+="## 🔄 Modified links updated!
+          
+          $MODIFIED_LINKS
+          "
+          fi
+          
+          if [ -z "$COMMENT" ]; then
+            echo "No new or modified links to report"
+            exit 0
+          fi
+          
+          # Post comment to PR
+          gh pr comment $PR_NUMBER --body "$COMMENT"
