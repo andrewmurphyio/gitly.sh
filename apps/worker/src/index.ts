@@ -6,6 +6,13 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+// Security headers middleware
+app.use('*', async (c, next) => {
+  await next()
+  c.header('X-Content-Type-Options', 'nosniff')
+  c.header('X-Frame-Options', 'DENY')
+})
+
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok' }))
 
