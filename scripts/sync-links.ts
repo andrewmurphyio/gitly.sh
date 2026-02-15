@@ -1,21 +1,23 @@
 #!/usr/bin/env tsx
 /**
- * sync-links.ts — Parse and validate all links.csv files, sync to Cloudflare KV
+ * sync-links.ts — Parse and validate all links.csv files, sync to Cloudflare KV + D1
  *
  * Replaces the fragile bash CSV parser with proper validation:
  * - Real CSV parsing (handles commas in URLs, quoted fields)
  * - Slug validation per ADR-004 (3-50 chars, alphanumeric + hyphens)
  * - URL validation (https:// only)
  * - Duplicate slug detection across all users
+ * - Syncs to both KV (for fast redirects) and D1 (for analytics/admin)
  *
  * Usage:
  *   pnpm --filter @gitly/scripts sync-links
  *
  * Environment:
- *   CLOUDFLARE_API_TOKEN  - API token with KV write access
+ *   CLOUDFLARE_API_TOKEN  - API token with KV write + D1 write access
  *   CLOUDFLARE_ACCOUNT_ID - Account ID
  *   KV_NAMESPACE_ID       - KV namespace ID for links
- *   DRY_RUN               - If "true", validate only (no KV writes)
+ *   D1_DATABASE_ID        - D1 database ID for analytics
+ *   DRY_RUN               - If "true", validate only (no KV/D1 writes)
  */
 
 import { parse } from "csv-parse/sync";
@@ -177,9 +179,15 @@ async function syncToKV(links: LinkRecord[]): Promise<void> {
   }
 
   // Use bulk write API for efficiency (up to 10,000 keys per request)
+  // Store full LinkData object for richer metadata
+  const now = Math.floor(Date.now() / 1000);
   const bulkData = links.map((link) => ({
     key: link.slug,
-    value: link.url,
+    value: JSON.stringify({
+      url: link.url,
+      createdAt: now,
+      createdBy: link.file.split("/")[1] || "unknown", // Extract username from path
+    }),
   }));
 
   const response = await fetch(
@@ -202,6 +210,53 @@ async function syncToKV(links: LinkRecord[]): Promise<void> {
   const result = await response.json();
   if (!result.success) {
     throw new Error(`KV bulk write failed: ${JSON.stringify(result.errors)}`);
+  }
+}
+
+async function syncToD1(links: LinkRecord[]): Promise<void> {
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const databaseId = process.env.D1_DATABASE_ID;
+
+  if (!apiToken || !accountId || !databaseId) {
+    throw new Error(
+      "Missing required env vars: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID"
+    );
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  // Use D1 HTTP API to upsert links
+  // We use INSERT OR REPLACE to handle both new and existing links
+  for (const link of links) {
+    const createdBy = link.file.split("/")[1] || "unknown";
+
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sql: `INSERT INTO links (slug, url, created_at, created_by, clicks) 
+                VALUES (?1, ?2, ?3, ?4, 0)
+                ON CONFLICT(slug) DO UPDATE SET url = ?2`,
+          params: [link.slug, link.url, now, createdBy],
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`D1 insert failed for ${link.slug}: ${response.status} - ${error}`);
+    }
+
+    const result: any = await response.json();
+    if (!result.success) {
+      throw new Error(`D1 insert failed for ${link.slug}: ${JSON.stringify(result.errors)}`);
+    }
   }
 }
 
@@ -309,9 +364,9 @@ async function main(): Promise<void> {
   const validLinks = Array.from(slugMap.values());
   console.log(`✅ All ${validLinks.length} link(s) valid\n`);
 
-  // Sync to KV
+  // Sync to KV and D1
   if (dryRun) {
-    console.log("🔍 Dry run — skipping KV sync\n");
+    console.log("🔍 Dry run — skipping KV/D1 sync\n");
     console.log("Links that would be synced:");
     for (const link of validLinks) {
       console.log(`   ${link.slug} → ${link.url}`);
@@ -320,6 +375,10 @@ async function main(): Promise<void> {
     console.log("☁️  Syncing to Cloudflare KV...\n");
     await syncToKV(validLinks);
     console.log(`✅ Synced ${validLinks.length} link(s) to KV\n`);
+
+    console.log("☁️  Syncing to Cloudflare D1...\n");
+    await syncToD1(validLinks);
+    console.log(`✅ Synced ${validLinks.length} link(s) to D1\n`);
   }
 }
 
