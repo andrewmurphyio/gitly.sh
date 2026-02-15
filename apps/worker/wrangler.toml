@@ -7,8 +7,18 @@ routes = [
   { pattern = "gitly.sh", custom_domain = true }
 ]
 
-# KV namespace for link storage
-# The id is provided via KV_NAMESPACE_ID environment variable
+# KV namespace for link storage (fast redirects)
+# Create with: wrangler kv:namespace create LINKS
 [[kv_namespaces]]
 binding = "LINKS"
 id = "$KV_NAMESPACE_ID"
+
+# D1 database for analytics and admin queries
+# Create with: wrangler d1 create gitly-sh-db
+[[d1_databases]]
+binding = "DB"
+database_name = "gitly-sh-db"
+database_id = "$D1_DATABASE_ID"
+
+# Environment variables (set via wrangler secret)
+# ANALYTICS_API_KEY - API key for analytics export endpoint
