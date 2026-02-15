@@ -2,6 +2,23 @@ import { Hono } from 'hono'
 import { handleQR } from './qr'
 import { parseUserAgent, hashIP } from './ua-parser'
 
+/**
+ * Constant-time string comparison to prevent timing attacks.
+ * Uses crypto.subtle.timingSafeEqual when available (Workers runtime).
+ */
+function constantTimeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    // Compare against itself to maintain constant time even for length mismatch
+    const dummy = new TextEncoder().encode(a)
+    crypto.subtle.timingSafeEqual(dummy, dummy)
+    return false
+  }
+  
+  const encodedA = new TextEncoder().encode(a)
+  const encodedB = new TextEncoder().encode(b)
+  return crypto.subtle.timingSafeEqual(encodedA, encodedB)
+}
+
 type Bindings = {
   LINKS: KVNamespace
   DB: D1Database
@@ -44,9 +61,11 @@ app.get('/:slug/qr', handleQR)
 
 // Analytics API - protected by API key
 app.get('/api/analytics', async (c) => {
-  // Verify API key
-  const authHeader = c.req.header('Authorization')
-  if (!authHeader || authHeader !== `Bearer ${c.env.ANALYTICS_API_KEY}`) {
+  // Verify API key using constant-time comparison to prevent timing attacks
+  const authHeader = c.req.header('Authorization') || ''
+  const expectedHeader = `Bearer ${c.env.ANALYTICS_API_KEY}`
+  
+  if (!constantTimeCompare(authHeader, expectedHeader)) {
     return c.json({ error: 'Unauthorized' }, 401)
   }
 
