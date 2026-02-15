@@ -42,5 +42,5 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/worker
-        env:
-          KV_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_ID }}
+          preCommands: |
+            sed -i "s/\$KV_NAMESPACE_ID/${{ secrets.KV_NAMESPACE_ID }}/g" wrangler.toml
