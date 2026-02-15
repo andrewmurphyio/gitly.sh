@@ -9,7 +9,7 @@
  * Usage: pnpm --filter @gitly/scripts sync-analytics
  *
  * Environment:
- *   ANALYTICS_API_URL - Base URL of the analytics API
+ *   ANALYTICS_API_URL - Base URL of the analytics API (e.g., https://gitly.sh)
  *   ANALYTICS_API_KEY - API key for authentication
  */
 
@@ -51,19 +51,9 @@ interface GroupedClicks {
 // Config
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Normalize API URL: strip trailing slashes and any /api suffix
-// The script appends /api/analytics, so base URL should be just the domain
-function normalizeApiUrl(url: string): string {
-  let normalized = url.trim().replace(/\/+$/, ""); // Remove trailing slashes
-  // If URL ends with /api, strip it (common misconfiguration)
-  if (normalized.endsWith("/api")) {
-    normalized = normalized.slice(0, -4);
-  }
-  return normalized;
-}
-
-const RAW_API_URL = process.env.ANALYTICS_API_URL || "https://gitly.sh";
-const API_URL = normalizeApiUrl(RAW_API_URL);
+// API_URL should be the base domain (e.g., https://gitly.sh)
+// The script appends /api/analytics to this
+const API_URL = (process.env.ANALYTICS_API_URL || "https://gitly.sh").trim().replace(/\/+$/, "");
 const API_KEY = process.env.ANALYTICS_API_KEY;
 
 if (!API_KEY) {
@@ -120,7 +110,7 @@ async function main(): Promise<void> {
     // Provide helpful hints for common errors
     if (response.status === 404) {
       console.error("\nHint: 404 usually means ANALYTICS_API_URL is misconfigured.");
-      console.error("Expected format: https://gitly.sh (just the domain, no /api suffix)");
+      console.error("Expected format: https://gitly.sh (base domain only, script appends /api/analytics)");
     } else if (response.status === 401) {
       console.error("\nHint: 401 means ANALYTICS_API_KEY is invalid or missing.");
     }
