@@ -55,8 +55,17 @@ const app = new Hono<{ Bindings: Bindings }>()
 // Security headers middleware
 app.use('*', async (c, next) => {
   await next()
+  // Existing headers
   c.header('X-Content-Type-Options', 'nosniff')
   c.header('X-Frame-Options', 'DENY')
+  // HSTS - enforce HTTPS for 1 year including subdomains
+  c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  // CSP - restrictive policy (no external resources needed)
+  c.header('Content-Security-Policy', "default-src 'none'")
+  // Referrer policy - send origin for cross-origin, full URL for same-origin
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin')
+  // Permissions policy - disable sensitive browser features
+  c.header('Permissions-Policy', 'geolocation=(), camera=(), microphone=()')
 })
 
 // Health check (no rate limiting - used for monitoring)
@@ -187,7 +196,14 @@ app.get('/:slug',
             status: 429,
             headers: {
               'Content-Type': 'text/html',
-              'Retry-After': '10'
+              'Retry-After': '10',
+              // Security headers (duplicated from middleware since raw Response bypasses it)
+              'X-Content-Type-Options': 'nosniff',
+              'X-Frame-Options': 'DENY',
+              'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+              'Content-Security-Policy': "default-src 'none'",
+              'Referrer-Policy': 'strict-origin-when-cross-origin',
+              'Permissions-Policy': 'geolocation=(), camera=(), microphone=()'
             }
           }
         )
