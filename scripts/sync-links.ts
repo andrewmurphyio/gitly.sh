@@ -216,10 +216,23 @@ async function syncToD1(links: LinkRecord[]): Promise<void> {
 
   const now = Math.floor(Date.now() / 1000);
 
-  // Use D1 HTTP API to upsert links
-  // We use INSERT OR REPLACE to handle both new and existing links
-  for (const link of links) {
+  // Batch all INSERT statements into a single D1 API request
+  // D1 HTTP API supports an array of {sql, params} objects in one request
+  // This is much more efficient than sequential HTTP requests (100 links = 1 API call vs 100)
+  const batchStatements = links.map((link) => {
     const createdBy = link.file.split("/")[1] || "unknown";
+    return {
+      sql: `INSERT INTO links (slug, url, created_at, created_by, clicks) 
+            VALUES (?1, ?2, ?3, ?4, 0)
+            ON CONFLICT(slug) DO UPDATE SET url = ?2`,
+      params: [link.slug, link.url, now, createdBy],
+    };
+  });
+
+  // D1 HTTP API has a limit of 100 statements per batch, so chunk if needed
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < batchStatements.length; i += BATCH_SIZE) {
+    const batch = batchStatements.slice(i, i + BATCH_SIZE);
 
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`,
@@ -229,23 +242,18 @@ async function syncToD1(links: LinkRecord[]): Promise<void> {
           Authorization: `Bearer ${apiToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          sql: `INSERT INTO links (slug, url, created_at, created_by, clicks) 
-                VALUES (?1, ?2, ?3, ?4, 0)
-                ON CONFLICT(slug) DO UPDATE SET url = ?2`,
-          params: [link.slug, link.url, now, createdBy],
-        }),
+        body: JSON.stringify(batch),
       }
     );
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`D1 insert failed for ${link.slug}: ${response.status} - ${error}`);
+      throw new Error(`D1 batch insert failed: ${response.status} - ${error}`);
     }
 
     const result: any = await response.json();
     if (!result.success) {
-      throw new Error(`D1 insert failed for ${link.slug}: ${JSON.stringify(result.errors)}`);
+      throw new Error(`D1 batch insert failed: ${JSON.stringify(result.errors)}`);
     }
   }
 }

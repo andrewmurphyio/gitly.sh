@@ -90,6 +90,23 @@ function detectOS(ua: string): string {
   return 'Other'
 }
 
+// Minimum required length for HASH_SECRET (256 bits = 32 chars of entropy)
+const MIN_HASH_SECRET_LENGTH = 32
+
+/**
+ * Validate that HASH_SECRET exists and meets minimum security requirements.
+ * Returns an error message if invalid, or null if valid.
+ */
+export function validateHashSecret(secret: string | undefined): string | null {
+  if (!secret) {
+    return 'HASH_SECRET is not configured'
+  }
+  if (secret.length < MIN_HASH_SECRET_LENGTH) {
+    return `HASH_SECRET too weak: ${secret.length} chars (minimum ${MIN_HASH_SECRET_LENGTH})`
+  }
+  return null // Valid
+}
+
 /**
  * Hash an IP address for unique visitor tracking.
  * Uses HMAC-SHA256 with a secret key and daily salt to prevent:

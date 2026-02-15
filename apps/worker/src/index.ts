@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { handleQR } from './qr'
-import { parseUserAgent, hashIP } from './ua-parser'
+import { parseUserAgent, hashIP, validateHashSecret } from './ua-parser'
 import { constantTimeCompare } from './crypto'
 import { createRateLimiter, getClientIP, compositeKey, RateLimitBinding } from './rate-limit'
 
@@ -271,6 +271,14 @@ async function recordClick(c: any, slug: string): Promise<void> {
   try {
     const now = Math.floor(Date.now() / 1000)
     const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD for hash salt
+    
+    // Validate HASH_SECRET before attempting to hash IP
+    // If missing or weak, log error and skip analytics (don't fail redirect)
+    const secretError = validateHashSecret(c.env.HASH_SECRET)
+    if (secretError) {
+      console.error(`Skipping analytics: ${secretError}`)
+      return
+    }
     
     // Extract data from request (truncate UA to prevent storage abuse)
     const rawUa = c.req.header('User-Agent')
