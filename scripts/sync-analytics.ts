@@ -163,6 +163,9 @@ async function main(): Promise<void> {
   const csvHeader =
     "clicked_at,slug,referrer,country,city,device_type,browser,os\n";
 
+  // Track users who received new data (for total.csv regeneration)
+  const usersWithNewData = new Set<string>();
+
   for (const [, { user, year, month, day, clicks }] of byUserAndDate) {
     const filePath = join("links", user, "analytics", year, month, `${day}.csv`);
     const dirPath = dirname(filePath);
@@ -227,7 +230,97 @@ async function main(): Promise<void> {
     }
 
     console.log(`${filePath}: Added ${newRows.length} clicks`);
+    usersWithNewData.add(user);
   }
+
+  // Regenerate total.csv for users who received new data
+  for (const user of usersWithNewData) {
+    await generateTotalCsv(user);
+  }
+}
+
+/**
+ * Generate total.csv by aggregating all clicks from daily CSVs.
+ * Format: slug,clicks (sorted by clicks descending)
+ */
+async function generateTotalCsv(user: string): Promise<void> {
+  const analyticsDir = join("links", user, "analytics");
+  const totalPath = join(analyticsDir, "total.csv");
+
+  // Aggregate clicks by slug
+  const slugCounts = new Map<string, number>();
+
+  // Recursively find all daily CSV files
+  const dailyFiles = await findDailyCsvFiles(analyticsDir);
+
+  for (const filePath of dailyFiles) {
+    try {
+      const content = await readFile(filePath, "utf-8");
+      const lines = content.trim().split("\n").slice(1); // Skip header
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        // CSV format: clicked_at,slug,...
+        const [, slug] = line.split(",");
+        if (slug) {
+          slugCounts.set(slug, (slugCounts.get(slug) || 0) + 1);
+        }
+      }
+    } catch {
+      // Skip unreadable files
+    }
+  }
+
+  if (slugCounts.size === 0) {
+    console.log(`${totalPath}: No clicks to aggregate`);
+    return;
+  }
+
+  // Sort by clicks descending
+  const sorted = [...slugCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+  // Write total.csv
+  const header = "slug,clicks\n";
+  const rows = sorted.map(([slug, count]) => `${slug},${count}`).join("\n");
+  await writeFile(totalPath, header + rows + "\n");
+
+  console.log(`${totalPath}: Aggregated ${slugCounts.size} slugs`);
+}
+
+/**
+ * Recursively find all daily CSV files in the analytics directory.
+ * Pattern: {year}/{month}/{day}.csv
+ */
+async function findDailyCsvFiles(dir: string): Promise<string[]> {
+  const { readdir, stat } = await import("node:fs/promises");
+  const files: string[] = [];
+
+  try {
+    const entries = await readdir(dir);
+
+    for (const entry of entries) {
+      const fullPath = join(dir, entry);
+
+      try {
+        const info = await stat(fullPath);
+
+        if (info.isDirectory()) {
+          // Recurse into year/month directories
+          const nested = await findDailyCsvFiles(fullPath);
+          files.push(...nested);
+        } else if (entry.endsWith(".csv") && entry !== "total.csv") {
+          // Daily CSV file (e.g., 15.csv)
+          files.push(fullPath);
+        }
+      } catch {
+        // Skip inaccessible entries
+      }
+    }
+  } catch {
+    // Directory doesn't exist or is inaccessible
+  }
+
+  return files;
 }
 
 main().catch((err) => {
