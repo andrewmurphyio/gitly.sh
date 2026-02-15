@@ -47,7 +47,7 @@ interface ValidationError {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ADR-004: Custom slugs: 3-50 chars, alphanumeric + hyphens, no leading/trailing hyphens
-const SLUG_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,48}[a-zA-Z0-9]$|^[a-zA-Z0-9]{1,2}$/;
+const SLUG_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,48}[a-zA-Z0-9]$/;
 
 // Reserved slugs that would conflict with API routes
 const RESERVED_SLUGS = new Set(["health", "api", "admin", "_"]);
@@ -59,8 +59,8 @@ function validateSlug(slug: string): string | null {
 
   const trimmed = slug.trim();
 
-  if (trimmed.length < 1) {
-    return "Slug must be at least 1 character";
+  if (trimmed.length < 3) {
+    return "Slug must be at least 3 characters";
   }
 
   if (trimmed.length > 50) {
@@ -68,20 +68,13 @@ function validateSlug(slug: string): string | null {
   }
 
   // Check for valid characters and no leading/trailing hyphens
-  if (trimmed.length <= 2) {
-    // Short slugs: just alphanumeric
-    if (!/^[a-zA-Z0-9]+$/.test(trimmed)) {
-      return "Slug must be alphanumeric (hyphens allowed only for 3+ char slugs)";
-    }
-  } else {
-    // 3+ chars: alphanumeric + hyphens, but not leading/trailing
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$/.test(trimmed)) {
-      return "Slug must be alphanumeric + hyphens, no leading/trailing hyphens";
-    }
-    // No consecutive hyphens
-    if (/--/.test(trimmed)) {
-      return "Slug cannot contain consecutive hyphens";
-    }
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$/.test(trimmed)) {
+    return "Slug must be alphanumeric + hyphens, no leading/trailing hyphens";
+  }
+
+  // No consecutive hyphens
+  if (/--/.test(trimmed)) {
+    return "Slug cannot contain consecutive hyphens";
   }
 
   if (RESERVED_SLUGS.has(trimmed.toLowerCase())) {
