@@ -49,11 +49,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          if git diff --quiet && git diff --staged --quiet; then
-            echo "No analytics changes to commit"
-            exit 0
-          fi
-          
           git add links/*/analytics/
           
           if git diff --staged --quiet; then
