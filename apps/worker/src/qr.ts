@@ -232,15 +232,19 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 /**
  * Fetch a logo image and convert it to a base64 data URI.
  * This prevents viewer IP leakage by proxying the logo through the server.
+ * Enforces size limits to prevent DoS via oversized images.
  */
 async function fetchLogoAsDataUri(logoUrl: string): Promise<string> {
-  const response = await safeFetch(logoUrl)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch logo: ${response.status}`)
-  }
+  const response = await fetchLogoWithSizeLimit(logoUrl)
 
   const contentType = response.headers.get('content-type') || 'image/png'
   const arrayBuffer = await response.arrayBuffer()
+  
+  // Verify actual size after download (Content-Length can be spoofed or missing)
+  if (arrayBuffer.byteLength > MAX_LOGO_SIZE) {
+    throw new Error(`Logo exceeds maximum size: ${arrayBuffer.byteLength} bytes (max ${MAX_LOGO_SIZE})`)
+  }
+  
   const base64 = arrayBufferToBase64(arrayBuffer)
 
   return `data:${contentType};base64,${base64}`
