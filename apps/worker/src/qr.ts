@@ -6,6 +6,9 @@ import { validateUrlForFetch, safeFetch } from './url-validator'
 // Maximum logo file size (2MB) - prevents DoS via oversized image URLs
 const MAX_LOGO_SIZE = 2 * 1024 * 1024
 
+// Timeout for logo fetch requests (5 seconds) - prevents slow servers from tying up Worker execution
+const LOGO_FETCH_TIMEOUT = 5000
+
 // Allowed image Content-Type values for logo uploads
 const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
 
@@ -32,13 +35,22 @@ function validateImageMagicBytes(bytes: Uint8Array, contentType: string): boolea
 }
 
 /**
- * Fetch a logo with size limit and content-type validation.
+ * Fetch a logo with size limit, timeout, and content-type validation.
  * Checks Content-Length and Content-Type headers before downloading,
  * then validates magic bytes after download for defense-in-depth.
- * @throws Error if logo exceeds MAX_LOGO_SIZE or has invalid content type
+ * @throws Error if logo exceeds MAX_LOGO_SIZE, times out, or has invalid content type
  */
 async function fetchLogoWithSizeLimit(logoUrl: string): Promise<Response> {
-  const response = await safeFetch(logoUrl)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), LOGO_FETCH_TIMEOUT)
+
+  let response: Response
+  try {
+    response = await safeFetch(logoUrl, { signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
+
   if (!response.ok) {
     throw new Error(`Failed to fetch logo: ${response.status}`)
   }
