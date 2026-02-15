@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { handleQR } from './qr'
 import { parseUserAgent, hashIP } from './ua-parser'
+import { constantTimeCompare } from './crypto'
 
 type Bindings = {
   LINKS: KVNamespace
@@ -47,9 +48,12 @@ app.get('/:slug/qr', handleQR)
 
 // Analytics API - protected by API key
 app.get('/api/analytics', async (c) => {
-  // Verify API key
-  const authHeader = c.req.header('Authorization')
-  if (!authHeader || authHeader !== `Bearer ${c.env.ANALYTICS_API_KEY}`) {
+  // Verify API key using constant-time comparison to prevent timing attacks
+  const authHeader = c.req.header('Authorization') || ''
+  const expected = `Bearer ${c.env.ANALYTICS_API_KEY}`
+  const isValid = await constantTimeCompare(authHeader, expected)
+  
+  if (!isValid) {
     return c.json({ error: 'Unauthorized' }, 401)
   }
 
