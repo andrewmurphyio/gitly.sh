@@ -29,6 +29,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       
+      - name: Debug API URL
+        env:
+          ANALYTICS_API_URL: ${{ secrets.ANALYTICS_API_URL }}
+        run: |
+          echo "URL length: ${#ANALYTICS_API_URL}"
+          echo "URL starts with: ${ANALYTICS_API_URL:0:8}"
+          echo "Testing endpoint..."
+          curl -s -w "\nHTTP: %{http_code}" "${ANALYTICS_API_URL}/api/analytics" || echo 'curl failed'
+      
       - name: Fetch and sync analytics
         working-directory: scripts
         env:
