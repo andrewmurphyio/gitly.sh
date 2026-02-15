@@ -1,4 +1,4 @@
-# git.ly
+# gitly.sh
 
 A URL shortener for developers.
 

@@ -1,4 +1,4 @@
-# git.ly - URL Shortener for Developers
+# gitly.sh - URL Shortener for Developers
 
 ## Vision
 A fast, developer-focused URL shortener. Like bit.ly, but built for the git workflow.
@@ -20,7 +20,7 @@ See [ADR-001](./docs/decisions/001-hosting.md) and [ADR-002](./docs/decisions/00
 
 ### URL Shortening
 - Create short URLs from long URLs
-- Custom slugs (e.g., `git.ly/my-project`)
+- Custom slugs (e.g., `gitly.sh/my-project`)
 - Auto-generated slugs when not specified
 - QR code generation
 
