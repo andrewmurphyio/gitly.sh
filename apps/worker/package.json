@@ -8,10 +8,12 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "hono": "^4.0.0"
+    "hono": "^4.0.0",
+    "qrcode": "^1.5.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240208.0",
+    "@types/qrcode": "^1.5.5",
     "typescript": "^5.3.0",
     "wrangler": "^3.28.0"
   }
