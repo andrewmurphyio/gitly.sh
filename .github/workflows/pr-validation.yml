@@ -62,3 +62,26 @@ jobs:
           
           echo ""
           echo "✅ All changes are within authorized paths"
+
+  validate-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Validate links (dry run)
+        run: pnpm --filter @gitly/scripts sync-links
+        env:
+          DRY_RUN: "true"

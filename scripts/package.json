@@ -1,0 +1,17 @@
+{
+  "name": "@gitly/scripts",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync-links": "tsx sync-links.ts"
+  },
+  "dependencies": {
+    "csv-parse": "^5.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}
