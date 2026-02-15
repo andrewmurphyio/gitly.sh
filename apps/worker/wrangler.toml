@@ -8,7 +8,7 @@ routes = [
 ]
 
 # KV namespace for link storage
-# The id is provided via KV_NAMESPACE_ID environment variable
+# PLACEHOLDER is replaced by CI with the actual namespace ID
 [[kv_namespaces]]
 binding = "LINKS"
-id = "$KV_NAMESPACE_ID"
+id = "KV_NAMESPACE_ID_PLACEHOLDER"
