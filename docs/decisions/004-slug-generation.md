@@ -1,6 +1,6 @@
 # ADR-004: Slug Generation Strategy
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Issue:** #4  
 **Date:** 2026-02-15
 
@@ -32,18 +32,18 @@ When a user creates a short link without specifying a custom slug, we need to ge
 
 ## Parameters
 
-| Parameter | Recommendation |
-|-----------|----------------|
+| Parameter | Value |
+|-----------|-------|
 | Length | 6 characters |
 | Alphabet | Base62 (a-zA-Z0-9) |
 | Collision handling | Retry up to 3 times |
 | Custom slugs | Allowed, 3-50 chars |
 | Custom validation | Alphanumeric + hyphens |
 
-## Recommendation
-
-6-char Base62 using nanoid library. Allow custom slugs with validation.
-
 ## Decision
 
-*Pending — awaiting input from @andrewmurphyio*
+**Accepted: Option A/B — 6-char Base62 using nanoid**
+
+- Auto-generated slugs: 6 characters, Base62 alphabet
+- Custom slugs allowed: 3-50 characters, alphanumeric + hyphens
+- Collision handling: Retry generation up to 3 times before failing

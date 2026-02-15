@@ -1,6 +1,6 @@
 # ADR-006: Data Model
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Issue:** #6  
 **Date:** 2026-02-15
 
@@ -15,7 +15,7 @@ Used for redirects — must be fast.
 
 ```
 Key: "link:{slug}"
-Value: { "url": "https://...", "createdAt": 1234567890 }
+Value: { "url": "https://...", "createdAt": 1234567890, "createdBy": "github-username" }
 ```
 
 ### Cloudflare D1 (Relational)
@@ -30,7 +30,7 @@ Used for admin, search, analytics.
 | `slug` | TEXT PK | Short URL slug |
 | `url` | TEXT NOT NULL | Original URL |
 | `created_at` | INTEGER | Unix timestamp |
-| `created_by_ip` | TEXT | Creator IP (hashed?) |
+| `created_by` | TEXT | GitHub username |
 | `expires_at` | INTEGER | Optional expiry |
 | `clicks` | INTEGER DEFAULT 0 | Denormalized counter |
 
@@ -42,22 +42,23 @@ Used for admin, search, analytics.
 | `slug` | TEXT | FK to links |
 | `clicked_at` | INTEGER | Unix timestamp |
 | `referrer` | TEXT | HTTP referrer |
-| `country` | TEXT | From CF headers |
-| `user_agent` | TEXT | Browser info |
+| `country` | TEXT | From CF `cf.country` |
+| `city` | TEXT | From CF `cf.city` |
+| `device_type` | TEXT | Mobile/Desktop/Tablet |
+| `browser` | TEXT | Chrome/Safari/Firefox/etc |
+| `os` | TEXT | Windows/macOS/iOS/Android |
+| `visitor_hash` | TEXT | Hashed IP for unique visitor tracking |
+| `user_agent` | TEXT | Raw user-agent string |
 
 ## Design Decisions
 
-| Question | Recommendation |
-|----------|----------------|
+| Question | Decision |
+|----------|----------|
 | Individual clicks vs counters? | Individual (richer analytics) |
-| Fetch page title? | Skip for MVP |
 | Soft vs hard delete? | Hard delete |
-| Hash creator IP? | Yes (privacy) |
-
-## Recommendation
-
-Store individual clicks for rich analytics. Keep it simple — no title fetching, hard deletes, hashed IPs.
+| IP handling | Hash for privacy, enables unique visitor tracking |
+| Device/browser parsing | Parse UA on click, store breakdown |
 
 ## Decision
 
-*Pending — awaiting input from @andrewmurphyio*
+Store individual clicks with full analytics data (per ADR-007). Parse user-agent for device/browser/OS. Hash IP for unique visitor tracking while preserving privacy.
