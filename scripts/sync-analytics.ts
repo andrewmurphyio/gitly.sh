@@ -51,13 +51,29 @@ interface GroupedClicks {
 // Config
 // ─────────────────────────────────────────────────────────────────────────────
 
-const API_URL = process.env.ANALYTICS_API_URL || "https://gitly.sh";
+// Normalize API URL: strip trailing slashes and any /api suffix
+// The script appends /api/analytics, so base URL should be just the domain
+function normalizeApiUrl(url: string): string {
+  let normalized = url.trim().replace(/\/+$/, ""); // Remove trailing slashes
+  // If URL ends with /api, strip it (common misconfiguration)
+  if (normalized.endsWith("/api")) {
+    normalized = normalized.slice(0, -4);
+  }
+  return normalized;
+}
+
+const RAW_API_URL = process.env.ANALYTICS_API_URL || "https://gitly.sh";
+const API_URL = normalizeApiUrl(RAW_API_URL);
 const API_KEY = process.env.ANALYTICS_API_KEY;
 
 if (!API_KEY) {
   console.error("Error: ANALYTICS_API_KEY environment variable is required");
   process.exit(1);
 }
+
+// Log normalized URL for debugging (only show domain)
+const urlDomain = new URL(API_URL).hostname;
+console.log(`Using API: ${urlDomain}`);
 
 // Fetch clicks from the last 70 minutes (60 + 10 overlap buffer)
 const BUFFER_MINUTES = 70;
@@ -88,19 +104,26 @@ async function main(): Promise<void> {
   );
 
   // Fetch analytics data
-  const response = await fetch(
-    `${API_URL}/api/analytics?since=${since}&until=${now}`,
-    {
-      headers: {
-        Authorization: `Bearer ${API_KEY}`,
-      },
-    }
-  );
+  const endpoint = `${API_URL}/api/analytics?since=${since}&until=${now}`;
+  const response = await fetch(endpoint, {
+    headers: {
+      Authorization: `Bearer ${API_KEY}`,
+    },
+  });
 
   if (!response.ok) {
     console.error(`API error: ${response.status} ${response.statusText}`);
+    console.error(`Endpoint: ${API_URL}/api/analytics`);
     const body = await response.text();
     console.error(body);
+    
+    // Provide helpful hints for common errors
+    if (response.status === 404) {
+      console.error("\nHint: 404 usually means ANALYTICS_API_URL is misconfigured.");
+      console.error("Expected format: https://gitly.sh (just the domain, no /api suffix)");
+    } else if (response.status === 401) {
+      console.error("\nHint: 401 means ANALYTICS_API_KEY is invalid or missing.");
+    }
     process.exit(1);
   }
 
