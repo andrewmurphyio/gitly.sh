@@ -13,7 +13,7 @@
  *   ANALYTICS_API_KEY - API key for authentication
  */
 
-import { writeFile, mkdir, readFile } from "node:fs/promises";
+import { writeFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -163,6 +163,9 @@ async function main(): Promise<void> {
   const csvHeader =
     "clicked_at,slug,referrer,country,city,device_type,browser,os\n";
 
+  // Track users that received new clicks (for total.csv updates)
+  const usersWithNewClicks = new Set<string>();
+
   for (const [, { user, year, month, day, clicks }] of byUserAndDate) {
     const filePath = join("links", user, "analytics", year, month, `${day}.csv`);
     const dirPath = dirname(filePath);
@@ -227,6 +230,112 @@ async function main(): Promise<void> {
     }
 
     console.log(`${filePath}: Added ${newRows.length} clicks`);
+    usersWithNewClicks.add(user);
+  }
+
+  // Update total.csv for users with new clicks
+  await updateTotals(usersWithNewClicks);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Total Aggregation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Recursively find all CSV files in a directory
+ */
+async function findCsvFiles(dir: string): Promise<string[]> {
+  const files: string[] = [];
+  
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      
+      if (entry.isDirectory()) {
+        const subFiles = await findCsvFiles(fullPath);
+        files.push(...subFiles);
+      } else if (entry.isFile() && entry.name.endsWith(".csv")) {
+        files.push(fullPath);
+      }
+    }
+  } catch {
+    // Directory doesn't exist
+  }
+  
+  return files;
+}
+
+/**
+ * Update total.csv for a user by aggregating all daily analytics
+ */
+async function updateTotalCsv(userDir: string): Promise<void> {
+  const analyticsDir = join(userDir, "analytics");
+  const totalPath = join(analyticsDir, "total.csv");
+  
+  // Find all daily CSV files
+  const csvFiles = await findCsvFiles(analyticsDir);
+  
+  // Filter out total.csv itself
+  const dailyFiles = csvFiles.filter(f => !f.endsWith("total.csv"));
+  
+  if (dailyFiles.length === 0) {
+    return; // No analytics to aggregate
+  }
+  
+  // Count clicks per slug
+  const slugCounts = new Map<string, number>();
+  
+  for (const file of dailyFiles) {
+    try {
+      const content = await readFile(file, "utf-8");
+      const lines = content.trim().split("\n").slice(1); // Skip header
+      
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        
+        // Parse CSV line - slug is the second column
+        const parts = line.split(",");
+        const slug = parts[1];
+        
+        if (slug) {
+          slugCounts.set(slug, (slugCounts.get(slug) || 0) + 1);
+        }
+      }
+    } catch {
+      // Skip files that can't be read
+    }
+  }
+  
+  if (slugCounts.size === 0) {
+    return; // No clicks to aggregate
+  }
+  
+  // Sort by click count (descending)
+  const sorted = [...slugCounts.entries()].sort((a, b) => b[1] - a[1]);
+  
+  // Write total.csv
+  const header = "slug,clicks\n";
+  const rows = sorted.map(([slug, clicks]) => `${slug},${clicks}`).join("\n");
+  
+  await mkdir(analyticsDir, { recursive: true });
+  await writeFile(totalPath, header + rows + "\n");
+  
+  console.log(`${totalPath}: Updated with ${slugCounts.size} slugs`);
+}
+
+/**
+ * Update total.csv for all users that had new clicks
+ */
+async function updateTotals(users: Set<string>): Promise<void> {
+  if (users.size === 0) return;
+  
+  console.log("\nUpdating totals...");
+  
+  for (const user of users) {
+    const userDir = join("links", user);
+    await updateTotalCsv(userDir);
   }
 }
 
