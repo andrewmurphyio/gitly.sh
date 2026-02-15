@@ -15,6 +15,13 @@
 
 import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Resolve repo root relative to this script (scripts/ → repo root)
+// This ensures paths work regardless of CWD
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const REPO_ROOT = join(__dirname, "..");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -157,7 +164,7 @@ async function main(): Promise<void> {
   const usersWithNewData = new Set<string>();
 
   for (const [, { user, year, month, day, clicks }] of byUserAndDate) {
-    const filePath = join("links", user, "analytics", year, month, `${day}.csv`);
+    const filePath = join(REPO_ROOT, "links", user, "analytics", year, month, `${day}.csv`);
     const dirPath = dirname(filePath);
 
     // Ensure directory exists
@@ -234,7 +241,7 @@ async function main(): Promise<void> {
  * Format: slug,clicks (sorted by clicks descending)
  */
 async function generateTotalCsv(user: string): Promise<void> {
-  const analyticsDir = join("links", user, "analytics");
+  const analyticsDir = join(REPO_ROOT, "links", user, "analytics");
   const totalPath = join(analyticsDir, "total.csv");
 
   // Aggregate clicks by slug
