@@ -13,11 +13,86 @@ interface QROptions {
   logoSize: number
 }
 
+/**
+ * Validates that a logo URL is safe to fetch server-side.
+ * Prevents SSRF attacks by enforcing HTTPS and blocking internal/private IPs.
+ */
+function isAllowedLogoUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    
+    // Only allow HTTPS
+    if (parsed.protocol !== 'https:') {
+      return false
+    }
+    
+    const hostname = parsed.hostname.toLowerCase()
+    
+    // Block localhost variants
+    if (hostname === 'localhost' || hostname === '[::1]') {
+      return false
+    }
+    
+    // Check for IP addresses
+    const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+    if (ipv4Match) {
+      const octets = ipv4Match.slice(1).map(Number)
+      const [a, b, c, d] = octets
+      
+      // Validate octets
+      if (octets.some(o => o > 255)) {
+        return false
+      }
+      
+      // Block private/internal IP ranges (RFC 1918, RFC 3927, RFC 5737, etc.)
+      if (
+        a === 10 ||                                    // 10.0.0.0/8 (private)
+        (a === 172 && b >= 16 && b <= 31) ||          // 172.16.0.0/12 (private)
+        (a === 192 && b === 168) ||                    // 192.168.0.0/16 (private)
+        a === 127 ||                                   // 127.0.0.0/8 (loopback)
+        (a === 169 && b === 254) ||                    // 169.254.0.0/16 (link-local, metadata)
+        a === 0 ||                                     // 0.0.0.0/8 (this network)
+        (a === 100 && b >= 64 && b <= 127) ||         // 100.64.0.0/10 (carrier-grade NAT)
+        (a === 192 && b === 0 && c === 0) ||          // 192.0.0.0/24 (IETF protocol)
+        (a === 192 && b === 0 && c === 2) ||          // 192.0.2.0/24 (TEST-NET-1)
+        (a === 198 && b === 51 && c === 100) ||       // 198.51.100.0/24 (TEST-NET-2)
+        (a === 203 && b === 0 && c === 113) ||        // 203.0.113.0/24 (TEST-NET-3)
+        (a >= 224 && a <= 239) ||                      // 224.0.0.0/4 (multicast)
+        (a >= 240)                                     // 240.0.0.0/4 (reserved/broadcast)
+      ) {
+        return false
+      }
+    }
+    
+    // Block IPv6 addresses entirely (too many edge cases for internal ranges)
+    if (hostname.startsWith('[') || hostname.includes(':')) {
+      return false
+    }
+    
+    // Block common cloud metadata hostnames
+    const blockedHostnames = [
+      'metadata.google.internal',
+      'metadata.goog',
+      'metadata',
+    ]
+    if (blockedHostnames.includes(hostname)) {
+      return false
+    }
+    
+    return true
+  } catch {
+    return false
+  }
+}
+
 function parseOptions(c: Context): QROptions {
   const size = Math.min(1024, Math.max(64, parseInt(c.req.query('size') || '256', 10)))
   const format = c.req.query('format') === 'svg' ? 'svg' : 'png'
-  const logo = c.req.query('logo')
+  const logoParam = c.req.query('logo')
   const logoSize = Math.min(0.35, Math.max(0.15, parseFloat(c.req.query('logo_size') || '0.25')))
+
+  // Validate logo URL if provided - reject unsafe URLs
+  const logo = logoParam && isAllowedLogoUrl(logoParam) ? logoParam : undefined
 
   return { size, format, logo, logoSize }
 }
@@ -102,6 +177,11 @@ async function compositeLogoOnQR(
   size: number,
   logoSizeRatio: number
 ): Promise<Uint8Array> {
+  // Defense-in-depth: validate URL again before fetching
+  if (!isAllowedLogoUrl(logoUrl)) {
+    throw new Error('Invalid logo URL: must be HTTPS from a public host')
+  }
+  
   // Fetch the logo image
   const logoResponse = await fetch(logoUrl)
   if (!logoResponse.ok) {
