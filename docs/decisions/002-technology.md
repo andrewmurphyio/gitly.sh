@@ -1,22 +1,23 @@
 # ADR-002: Technology Stack
 
-**Status:** Proposed  
+**Status:** Accepted ✅  
 **Issue:** #2  
-**Date:** 2026-02-13
+**Date:** 2026-02-13  
+**Decided:** 2026-02-15
 
 ## Context
 
-We need to decide what technology to build git.ly with. This depends partly on the hosting decision (ADR-001).
+We need to decide what technology to build git.ly with. Per ADR-001, we're using Cloudflare Workers for hosting.
 
 ## Options Considered
 
-### Option A: Cloudflare Workers + Hono
+### Option A: Cloudflare Workers + Hono ✅
 
 **Stack:**
 - Hono (lightweight web framework for Workers)
 - Cloudflare KV for slug storage
-- D1 (SQLite) or external DB for analytics
-- Cloudflare Pages for dashboard (optional)
+- D1 (SQLite) for analytics
+- Cloudflare Pages for dashboard (future)
 
 **Pros:**
 - Fastest redirects possible
@@ -63,24 +64,37 @@ We need to decide what technology to build git.ly with. This depends partly on t
 - Separate frontend needed
 - Overkill for MVP
 
-### Option D: Other frameworks (Remix, SvelteKit, etc.)
-
-Similar to Next.js with framework-specific tradeoffs.
-
-## Key Question
-
-How important is the dashboard/analytics UI vs the core shortening API?
-
-- **API-first:** Workers + Hono is simpler
-- **UI-heavy:** Next.js gives more flexibility
-
-## Recommendation
-
-If hosting is Cloudflare (ADR-001), then **Workers + Hono** is the natural fit:
-- Matches the platform
-- Minimal complexity
-- Dashboard can be added later via Pages
-
 ## Decision
 
-*Pending — awaiting input from @andrewmurphyio*
+**Cloudflare Workers + TypeScript monorepo:**
+
+| Component | Technology |
+|-----------|------------|
+| Framework | Hono (or similar lightweight router) |
+| URL Storage | Cloudflare KV |
+| Analytics | Cloudflare D1 (SQLite) |
+| Monorepo | pnpm workspaces + Turborepo |
+| Dashboard | Cloudflare Pages (future) |
+
+### Repository Structure
+
+```
+git.ly/
+├── apps/
+│   ├── worker/          # URL redirector (Cloudflare Worker)
+│   │   ├── src/
+│   │   └── wrangler.toml
+│   └── dashboard/       # Admin UI (future, Cloudflare Pages)
+│       └── src/
+├── packages/
+│   └── shared/          # Shared types, utils
+├── package.json
+├── pnpm-workspace.yaml
+└── turbo.json
+```
+
+### Key Constraints
+
+- Keep architecture dashboard-friendly (don't make decisions that block adding UI later)
+- Worker handles redirects at edge
+- Dashboard will be added later as a separate Cloudflare Pages app

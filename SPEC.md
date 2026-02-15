@@ -3,6 +3,19 @@
 ## Vision
 A fast, developer-focused URL shortener. Like bit.ly, but built for the git workflow.
 
+## Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| **Hosting** | Cloudflare Workers (edge) |
+| **Framework** | Hono (TypeScript) |
+| **URL Storage** | Cloudflare KV |
+| **Analytics** | Cloudflare D1 (SQLite) |
+| **Monorepo** | pnpm workspaces + Turborepo |
+| **Dashboard** | Cloudflare Pages (future) |
+
+See [ADR-001](./docs/decisions/001-hosting.md) and [ADR-002](./docs/decisions/002-technology.md) for decision rationale.
+
 ## Core Features (MVP)
 
 ### URL Shortening
@@ -30,13 +43,6 @@ A fast, developer-focused URL shortener. Like bit.ly, but built for the git work
 - Expiring links
 - Password-protected links
 - Custom domains
-
-## Tech Stack (TBD)
-- **Options to consider:**
-  - Cloudflare Workers (edge performance)
-  - Next.js + Vercel
-  - Go/Rust for raw speed
-  - PostgreSQL or Redis for storage
 
 ## Non-Goals (for now)
 - Enterprise features

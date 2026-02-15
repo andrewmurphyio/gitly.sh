@@ -6,8 +6,8 @@ This folder contains ADRs documenting significant technical decisions for git.ly
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [001](./001-hosting.md) | Hosting Platform | Proposed |
-| [002](./002-technology.md) | Technology Stack | Proposed |
+| [001](./001-hosting.md) | Hosting Platform | ✅ Accepted |
+| [002](./002-technology.md) | Technology Stack | ✅ Accepted |
 
 ## Status Values
 

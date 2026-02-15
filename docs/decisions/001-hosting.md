@@ -1,8 +1,9 @@
 # ADR-001: Hosting Platform
 
-**Status:** Proposed  
+**Status:** Accepted ✅  
 **Issue:** #1  
-**Date:** 2026-02-13
+**Date:** 2026-02-13  
+**Decided:** 2026-02-15
 
 ## Context
 
@@ -13,7 +14,7 @@ We need to choose a hosting platform for git.ly. Key requirements:
 
 ## Options Considered
 
-### Option A: Cloudflare Workers + KV
+### Option A: Cloudflare Workers + KV ✅
 
 | Aspect | Details |
 |--------|---------|
@@ -79,10 +80,6 @@ We need to choose a hosting platform for git.ly. Key requirements:
 - Cold starts or always-on costs
 - Overkill for MVP
 
-## Recommendation
-
-**Cloudflare Workers + KV** — best performance for a URL shortener, generous free tier, and Andrew already has the infrastructure.
-
 ## Decision
 
-*Pending — awaiting input from @andrewmurphyio*
+**Cloudflare Workers** — best performance for a URL shortener, generous free tier, and existing Cloudflare infrastructure.
