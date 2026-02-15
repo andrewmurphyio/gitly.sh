@@ -14,11 +14,10 @@ binding = "LINKS"
 id = "$KV_NAMESPACE_ID"
 
 # D1 database for analytics and admin queries
-# Create with: wrangler d1 create gitly-sh-db
 [[d1_databases]]
 binding = "DB"
-database_name = "gitly-sh-db"
-database_id = "$D1_DATABASE_ID"
+database_name = "gitlysh"
+database_id = "1e16ea5f-2890-4d1b-99a3-31f50925fe31"
 
 # Environment variables (set via wrangler secret)
 # ANALYTICS_API_KEY - API key for analytics export endpoint
