@@ -1,8 +1,9 @@
 name: Sync Analytics
 
 on:
-  schedule:
-    - cron: '0 * * * *'
+  # Schedule disabled until analytics API is implemented (see #56)
+  # schedule:
+  #   - cron: '0 * * * *'
   workflow_dispatch:
 
 jobs:
