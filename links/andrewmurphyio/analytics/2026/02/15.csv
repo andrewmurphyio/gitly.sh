@@ -1,0 +1,14 @@
+clicked_at,slug,referrer,country,city,device_type,browser,os
+2026-02-15T04:29:42.000Z,dl,,US,Columbus,desktop,Edge,Windows
+2026-02-15T04:29:42.000Z,dl,,US,Columbus,desktop,Edge,Windows
+2026-02-15T04:29:42.000Z,dl,http://gitly.sh,US,Council Bluffs,desktop,Chrome,Windows
+2026-02-15T04:29:42.000Z,dl,,US,Dallas,desktop,Chrome,Linux
+2026-02-15T04:29:42.000Z,dl,,US,Dallas,desktop,Chrome,Linux
+2026-02-15T04:29:42.000Z,dl,,DE,Berlin,desktop,IE,Windows
+2026-02-15T04:29:44.000Z,dl,,VN,Ho Chi Minh City,desktop,Other,Other
+2026-02-15T04:29:48.000Z,dl,http://gitly.sh,US,Council Bluffs,mobile,Firefox,Android
+2026-02-15T04:30:44.000Z,dl,,US,Boardman,desktop,Chrome,Windows
+2026-02-15T04:30:46.000Z,dl,,US,Boardman,desktop,Chrome,Windows
+2026-02-15T04:32:33.000Z,dl,,NL,Amsterdam,desktop,Chrome,macOS
+2026-02-15T04:32:34.000Z,dl,,DK,Ballerup,mobile,Safari,iOS
+2026-02-15T04:33:11.000Z,dl,,NL,Amsterdam,mobile,Safari,iOS
