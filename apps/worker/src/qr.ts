@@ -1,6 +1,7 @@
 import { Context } from 'hono'
 import QRCode from 'qrcode'
 import { PhotonImage, SamplingFilter, resize, watermark } from '@cf-wasm/photon/workerd'
+import { validateUrlForFetch, safeFetch } from './url-validator'
 
 type Bindings = {
   LINKS: KVNamespace
@@ -46,10 +47,16 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
         margin: 2,
       })
 
-      // If logo requested, embed it in SVG
+      // If logo requested, embed it in SVG (client-side fetch, but still validate URL format)
       let finalSvg = svg
       if (options.logo) {
-        finalSvg = embedLogoInSvg(svg, options.logo, options.size, options.logoSize)
+        const validation = validateUrlForFetch(options.logo)
+        if (!validation.valid) {
+          // Fall back to QR without logo for invalid URLs
+          console.warn('Invalid logo URL for SVG:', validation.error)
+        } else {
+          finalSvg = embedLogoInSvg(svg, options.logo, options.size, options.logoSize)
+        }
       }
 
       return c.body(finalSvg, 200, {
@@ -102,8 +109,8 @@ async function compositeLogoOnQR(
   size: number,
   logoSizeRatio: number
 ): Promise<Uint8Array> {
-  // Fetch the logo image
-  const logoResponse = await fetch(logoUrl)
+  // Validate and fetch the logo image with SSRF protection
+  const logoResponse = await safeFetch(logoUrl)
   if (!logoResponse.ok) {
     throw new Error(`Failed to fetch logo: ${logoResponse.status}`)
   }
