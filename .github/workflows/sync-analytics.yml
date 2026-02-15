@@ -39,12 +39,10 @@ jobs:
           curl -s -w "\nHTTP: %{http_code}" "${ANALYTICS_API_URL}/api/analytics" || echo 'curl failed'
       
       - name: Fetch and sync analytics
-        working-directory: scripts
         env:
           ANALYTICS_API_URL: ${{ secrets.ANALYTICS_API_URL }}
           ANALYTICS_API_KEY: ${{ secrets.ANALYTICS_API_KEY }}
-        run: |
-          pnpm sync-analytics
+        run: pnpm --filter @gitly/scripts sync-analytics
       
       - name: Commit and push changes
         run: |
