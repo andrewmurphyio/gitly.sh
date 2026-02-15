@@ -185,6 +185,21 @@ function createWhiteImage(width: number, height: number): PhotonImage {
 }
 
 /**
+ * Convert an ArrayBuffer to base64 string using chunked approach.
+ * Avoids stack overflow on large images (>100KB) that occurs with spread operator.
+ */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 8192
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize)
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[])
+  }
+  return btoa(binary)
+}
+
+/**
  * Fetch a logo image and convert it to a base64 data URI.
  * This prevents viewer IP leakage by proxying the logo through the server.
  */
@@ -196,7 +211,7 @@ async function fetchLogoAsDataUri(logoUrl: string): Promise<string> {
 
   const contentType = response.headers.get('content-type') || 'image/png'
   const arrayBuffer = await response.arrayBuffer()
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+  const base64 = arrayBufferToBase64(arrayBuffer)
 
   return `data:${contentType};base64,${base64}`
 }
