@@ -1,0 +1,36 @@
+import { Hono } from 'hono'
+
+type Bindings = {
+  LINKS: KVNamespace
+}
+
+const app = new Hono<{ Bindings: Bindings }>()
+
+// Health check
+app.get('/health', (c) => c.json({ status: 'ok' }))
+
+// Redirect handler
+app.get('/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  
+  // Look up the URL in KV
+  const url = await c.env.LINKS.get(slug)
+  
+  if (!url) {
+    return c.notFound()
+  }
+  
+  // 301 permanent redirect
+  return c.redirect(url, 301)
+})
+
+// Root - could be a landing page later
+app.get('/', (c) => {
+  return c.json({
+    name: 'gitly.sh',
+    description: 'URL shortener for developers',
+    docs: 'https://github.com/andrewmurphyio/gitly.sh'
+  })
+})
+
+export default app

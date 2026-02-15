@@ -1,0 +1,13 @@
+name = "gitly-sh"
+main = "src/index.ts"
+compatibility_date = "2024-02-01"
+
+# Production route
+routes = [
+  { pattern = "gitly.sh", custom_domain = true }
+]
+
+# KV namespace for link storage
+[[kv_namespaces]]
+binding = "LINKS"
+id = "" # Set via GitHub Actions or wrangler cli
