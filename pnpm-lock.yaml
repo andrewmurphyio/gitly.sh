@@ -27,3 +27,12 @@ importers:
       wrangler:
         specifier: ^3.28.0
         version: 3.114.17(@cloudflare/workers-types@4.20260214.0)
+
+packages:
+  'hono@4.11.9':
+    resolution: {integrity: sha512-}
+  turbo@2.8.9:
+    resolution: {integrity: sha512-}
+snapshots:
+  hono@4.11.9: {}
+  turbo@2.8.9: {}
