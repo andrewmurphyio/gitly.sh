@@ -8,6 +8,7 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
+    "@cf-wasm/photon": "^0.3.4",
     "hono": "^4.0.0",
     "qrcode": "^1.5.3"
   },

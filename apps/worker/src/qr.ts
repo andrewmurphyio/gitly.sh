@@ -1,5 +1,6 @@
 import { Context } from 'hono'
 import QRCode from 'qrcode'
+import { PhotonImage, SamplingFilter, resize, watermark } from '@cf-wasm/photon/workerd'
 
 type Bindings = {
   LINKS: KVNamespace
@@ -10,12 +11,6 @@ interface QROptions {
   format: 'png' | 'svg'
   logo?: string
   logoSize: number
-}
-
-const DEFAULT_OPTIONS: QROptions = {
-  size: 256,
-  format: 'png',
-  logoSize: 0.25,
 }
 
 function parseOptions(c: Context): QROptions {
@@ -62,7 +57,7 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
         'Cache-Control': 'public, max-age=3600',
       })
     } else {
-      // PNG output
+      // PNG output with optional logo compositing via photon
       const buffer = await QRCode.toBuffer(targetUrl, {
         type: 'png',
         width: options.size,
@@ -70,25 +65,115 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
         margin: 2,
       })
 
-      // Note: Logo compositing for PNG requires canvas or image processing library
-      // For now, return QR without logo for PNG format
-      // TODO: Implement PNG logo compositing (see ADR 008)
-      
-      const headers: Record<string, string> = {
-        'Content-Type': 'image/png',
-        'Cache-Control': 'public, max-age=3600',
-      }
-      
+      let outputBytes: Uint8Array
+
       if (options.logo) {
-        headers['X-Logo-Status'] = 'not-implemented-for-png'
+        try {
+          outputBytes = await compositeLogoOnQR(buffer, options.logo, options.size, options.logoSize)
+        } catch (logoError) {
+          console.error('Logo compositing failed:', logoError)
+          // Fall back to QR without logo
+          outputBytes = new Uint8Array(buffer)
+        }
+      } else {
+        outputBytes = new Uint8Array(buffer)
       }
 
-      return c.body(buffer, 200, headers)
+      return new Response(outputBytes, {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      })
     }
   } catch (error) {
     console.error('QR generation failed:', error)
     return c.json({ error: 'Failed to generate QR code' }, 500)
   }
+}
+
+/**
+ * Composite a logo onto a QR code PNG using photon WASM
+ */
+async function compositeLogoOnQR(
+  qrBuffer: Buffer,
+  logoUrl: string,
+  size: number,
+  logoSizeRatio: number
+): Promise<Uint8Array> {
+  // Fetch the logo image
+  const logoResponse = await fetch(logoUrl)
+  if (!logoResponse.ok) {
+    throw new Error(`Failed to fetch logo: ${logoResponse.status}`)
+  }
+  
+  const logoBytes = new Uint8Array(await logoResponse.arrayBuffer())
+  
+  // Load QR code as PhotonImage
+  const qrImage = PhotonImage.new_from_byteslice(new Uint8Array(qrBuffer))
+  
+  // Load logo as PhotonImage
+  let logoImage: PhotonImage
+  try {
+    logoImage = PhotonImage.new_from_byteslice(logoBytes)
+  } catch (e) {
+    qrImage.free()
+    throw new Error('Failed to decode logo image')
+  }
+  
+  // Calculate target logo dimensions
+  const logoPixels = Math.round(size * logoSizeRatio)
+  const padding = Math.round(logoPixels * 0.15) // 15% padding for white background
+  
+  // Resize logo to target size
+  const resizedLogo = resize(
+    logoImage,
+    logoPixels,
+    logoPixels,
+    SamplingFilter.Lanczos3 // High quality resize
+  )
+  logoImage.free()
+  
+  // Create white background for logo
+  const bgSize = logoPixels + padding * 2
+  const whiteBackground = createWhiteImage(bgSize, bgSize)
+  
+  // Composite logo onto white background (centered)
+  // watermark takes bigint for x,y coordinates
+  watermark(whiteBackground, resizedLogo, BigInt(padding), BigInt(padding))
+  resizedLogo.free()
+  
+  // Calculate center position on QR code
+  const centerX = Math.round((size - bgSize) / 2)
+  const centerY = Math.round((size - bgSize) / 2)
+  
+  // Composite the logo-with-background onto the QR code
+  watermark(qrImage, whiteBackground, BigInt(centerX), BigInt(centerY))
+  whiteBackground.free()
+  
+  // Get output bytes as PNG
+  const outputBytes = qrImage.get_bytes()
+  qrImage.free()
+  
+  return outputBytes
+}
+
+/**
+ * Create a white RGBA image of given dimensions
+ * Uses PhotonImage constructor which takes raw RGBA pixels
+ */
+function createWhiteImage(width: number, height: number): PhotonImage {
+  // Create a white pixel array (RGBA)
+  const pixels = new Uint8Array(width * height * 4)
+  for (let i = 0; i < pixels.length; i += 4) {
+    pixels[i] = 255     // R
+    pixels[i + 1] = 255 // G
+    pixels[i + 2] = 255 // B
+    pixels[i + 3] = 255 // A
+  }
+  
+  return new PhotonImage(pixels, width, height)
 }
 
 function embedLogoInSvg(svg: string, logoUrl: string, size: number, logoSize: number): string {
