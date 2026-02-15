@@ -229,31 +229,29 @@ async function syncToD1(links: LinkRecord[]): Promise<void> {
     };
   });
 
-  // D1 HTTP API has a limit of 100 statements per batch, so chunk if needed
-  const BATCH_SIZE = 100;
-  for (let i = 0; i < batchStatements.length; i += BATCH_SIZE) {
-    const batch = batchStatements.slice(i, i + BATCH_SIZE);
+  // D1 REST API /query endpoint expects a single {sql, params} object, not an array
+  // Process statements individually (D1 Workers binding supports batch, but REST API doesn't)
+  const d1Url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`;
+  const headers = {
+    Authorization: `Bearer ${apiToken}`,
+    "Content-Type": "application/json",
+  };
 
-    const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(batch),
-      }
-    );
+  for (const stmt of batchStatements) {
+    const response = await fetch(d1Url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(stmt),
+    });
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`D1 batch insert failed: ${response.status} - ${error}`);
+      throw new Error(`D1 insert failed: ${response.status} - ${error}`);
     }
 
     const result: any = await response.json();
     if (!result.success) {
-      throw new Error(`D1 batch insert failed: ${JSON.stringify(result.errors)}`);
+      throw new Error(`D1 insert failed: ${JSON.stringify(result.errors)}`);
     }
   }
 }
