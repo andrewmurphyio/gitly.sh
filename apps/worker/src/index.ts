@@ -137,6 +137,19 @@ app.get('/api/analytics',
     return c.json({ error: 'Invalid time range' }, 400)
   }
 
+  if (since > until) {
+    return c.json({ error: 'Invalid time range', message: 'since must be less than until' }, 400)
+  }
+
+  // Limit query range to prevent resource abuse (max 90 days)
+  const MAX_RANGE_SECONDS = 90 * 24 * 60 * 60
+  if (until - since > MAX_RANGE_SECONDS) {
+    return c.json({ 
+      error: 'Range too large', 
+      message: `Max query range is 90 days. Requested: ${Math.ceil((until - since) / 86400)} days`
+    }, 400)
+  }
+
   try {
     // Fetch clicks with username from links table
     const result = await c.env.DB.prepare(`
