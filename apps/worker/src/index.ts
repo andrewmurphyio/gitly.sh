@@ -27,6 +27,9 @@ interface ClickRow {
   created_by: string // Joined from links table
 }
 
+// Security: Limit stored User-Agent length to prevent storage abuse
+const MAX_UA_LENGTH = 512
+
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Security headers middleware
@@ -129,8 +132,9 @@ async function recordClick(c: any, slug: string): Promise<void> {
     const now = Math.floor(Date.now() / 1000)
     const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD for hash salt
     
-    // Extract data from request
-    const ua = c.req.header('User-Agent') || null
+    // Extract data from request (truncate UA to prevent storage abuse)
+    const rawUa = c.req.header('User-Agent')
+    const ua = rawUa ? rawUa.slice(0, MAX_UA_LENGTH) : null
     const referrer = c.req.header('Referer') || null
     const cf = (c.req.raw as any).cf || {}
     
