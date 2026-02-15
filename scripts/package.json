@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "sync-analytics": "tsx sync-analytics.ts",
     "sync-links": "tsx sync-links.ts"
   },
   "dependencies": {
