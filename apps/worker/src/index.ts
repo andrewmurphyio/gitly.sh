@@ -30,6 +30,7 @@ interface ClickRow {
 
 // Security: Limit stored User-Agent length to prevent storage abuse
 const MAX_UA_LENGTH = 512
+const MAX_REFERRER_LENGTH = 2048
 
 // Security: Validate redirect URLs to prevent open redirect attacks
 function isValidRedirectUrl(url: string): boolean {
@@ -155,7 +156,8 @@ async function recordClick(c: any, slug: string): Promise<void> {
     // Extract data from request (truncate UA to prevent storage abuse)
     const rawUa = c.req.header('User-Agent')
     const ua = rawUa ? rawUa.slice(0, MAX_UA_LENGTH) : null
-    const referrer = c.req.header('Referer') || null
+    const rawReferrer = c.req.header('Referer')
+    const referrer = rawReferrer ? rawReferrer.slice(0, MAX_REFERRER_LENGTH) : null
     const cf = (c.req.raw as any).cf || {}
     
     // Parse user agent
