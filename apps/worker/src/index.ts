@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { handleQR } from './qr'
 
 type Bindings = {
   LINKS: KVNamespace
@@ -15,6 +16,9 @@ app.use('*', async (c, next) => {
 
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok' }))
+
+// QR code endpoint - must be before generic redirect handler
+app.get('/:slug/qr', handleQR)
 
 // Redirect handler
 app.get('/:slug', async (c) => {
