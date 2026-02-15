@@ -47,15 +47,16 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
         margin: 2,
       })
 
-      // If logo requested, embed it in SVG (client-side fetch, but still validate URL format)
+      // If logo requested, fetch it server-side and embed as data URI
+      // This prevents viewer IP leakage from client-side logo fetches
       let finalSvg = svg
       if (options.logo) {
-        const validation = validateUrlForFetch(options.logo)
-        if (!validation.valid) {
-          // Fall back to QR without logo for invalid URLs
-          console.warn('Invalid logo URL for SVG:', validation.error)
-        } else {
-          finalSvg = embedLogoInSvg(svg, options.logo, options.size, options.logoSize)
+        try {
+          const logoDataUri = await fetchLogoAsDataUri(options.logo)
+          finalSvg = embedLogoInSvg(svg, logoDataUri, options.size, options.logoSize)
+        } catch (logoError) {
+          console.warn('Logo fetch failed for SVG, using QR without logo:', logoError)
+          // Fall back to QR without logo
         }
       }
 
@@ -183,7 +184,28 @@ function createWhiteImage(width: number, height: number): PhotonImage {
   return new PhotonImage(pixels, width, height)
 }
 
-function embedLogoInSvg(svg: string, logoUrl: string, size: number, logoSize: number): string {
+/**
+ * Fetch a logo image and convert it to a base64 data URI.
+ * This prevents viewer IP leakage by proxying the logo through the server.
+ */
+async function fetchLogoAsDataUri(logoUrl: string): Promise<string> {
+  const response = await safeFetch(logoUrl)
+  if (!response.ok) {
+    throw new Error(`Failed to fetch logo: ${response.status}`)
+  }
+
+  const contentType = response.headers.get('content-type') || 'image/png'
+  const arrayBuffer = await response.arrayBuffer()
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+
+  return `data:${contentType};base64,${base64}`
+}
+
+/**
+ * Embed a logo into an SVG QR code.
+ * @param logoDataUri - A data URI (base64-encoded image) to embed
+ */
+function embedLogoInSvg(svg: string, logoDataUri: string, size: number, logoSize: number): string {
   const logoPixels = Math.round(size * logoSize)
   const logoOffset = Math.round((size - logoPixels) / 2)
   const padding = Math.round(logoPixels * 0.1)
@@ -198,7 +220,7 @@ function embedLogoInSvg(svg: string, logoUrl: string, size: number, logoSize: nu
       fill="white"
     />
     <image 
-      href="${escapeXml(logoUrl)}" 
+      href="${escapeXml(logoDataUri)}" 
       x="${logoOffset}" 
       y="${logoOffset}" 
       width="${logoPixels}" 
