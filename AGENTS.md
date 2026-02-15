@@ -61,6 +61,20 @@ This repo is developed collaboratively between a human (Andrew) and AI agents (M
 - Document significant decisions in `docs/decisions/` (ADR format)
 - When multiple approaches exist, present options rather than picking one
 
+### Decision Issues Workflow
+When an issue is about choosing between options (tech stack, architecture, approach):
+
+1. **Research** the options thoroughly
+2. **Document in a spec file** — create/update a file in `docs/decisions/` with:
+   - Options considered
+   - Pros/cons of each
+   - Recommendation (if any)
+   - Final decision (once made)
+3. **Comment on the issue** with a summary and link to the spec file
+4. **Update SPEC.md** once a decision is finalized
+
+Decisions live in the repo, not just in issue comments. Comments are for discussion; spec files are the source of truth.
+
 ---
 
 *This file is the contract between human and AI developers.*
