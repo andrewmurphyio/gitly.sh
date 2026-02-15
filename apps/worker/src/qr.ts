@@ -3,6 +3,32 @@ import QRCode from 'qrcode'
 import { PhotonImage, SamplingFilter, resize, watermark } from '@cf-wasm/photon/workerd'
 import { validateUrlForFetch, safeFetch } from './url-validator'
 
+// Maximum logo file size (2MB) - prevents DoS via oversized image URLs
+const MAX_LOGO_SIZE = 2 * 1024 * 1024
+
+/**
+ * Fetch a logo with size limit enforcement.
+ * Checks Content-Length header before downloading and validates buffer size after.
+ * @throws Error if logo exceeds MAX_LOGO_SIZE
+ */
+async function fetchLogoWithSizeLimit(logoUrl: string): Promise<Response> {
+  const response = await safeFetch(logoUrl)
+  if (!response.ok) {
+    throw new Error(`Failed to fetch logo: ${response.status}`)
+  }
+
+  // Check Content-Length header if available (early rejection)
+  const contentLength = response.headers.get('content-length')
+  if (contentLength) {
+    const size = parseInt(contentLength, 10)
+    if (!isNaN(size) && size > MAX_LOGO_SIZE) {
+      throw new Error(`Logo too large: ${size} bytes (max ${MAX_LOGO_SIZE})`)
+    }
+  }
+
+  return response
+}
+
 type Bindings = {
   LINKS: KVNamespace
 }
@@ -110,13 +136,17 @@ async function compositeLogoOnQR(
   size: number,
   logoSizeRatio: number
 ): Promise<Uint8Array> {
-  // Validate and fetch the logo image with SSRF protection
-  const logoResponse = await safeFetch(logoUrl)
-  if (!logoResponse.ok) {
-    throw new Error(`Failed to fetch logo: ${logoResponse.status}`)
+  // Validate and fetch the logo image with SSRF protection and size limit
+  const logoResponse = await fetchLogoWithSizeLimit(logoUrl)
+  
+  const logoBuffer = await logoResponse.arrayBuffer()
+  
+  // Verify actual size after download (Content-Length can be spoofed or missing)
+  if (logoBuffer.byteLength > MAX_LOGO_SIZE) {
+    throw new Error(`Logo exceeds maximum size: ${logoBuffer.byteLength} bytes (max ${MAX_LOGO_SIZE})`)
   }
   
-  const logoBytes = new Uint8Array(await logoResponse.arrayBuffer())
+  const logoBytes = new Uint8Array(logoBuffer)
   
   // Load QR code as PhotonImage
   const qrImage = PhotonImage.new_from_byteslice(new Uint8Array(qrBuffer))
