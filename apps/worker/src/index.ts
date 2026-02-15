@@ -55,8 +55,14 @@ const app = new Hono<{ Bindings: Bindings }>()
 // Security headers middleware
 app.use('*', async (c, next) => {
   await next()
+  // Existing security headers
   c.header('X-Content-Type-Options', 'nosniff')
   c.header('X-Frame-Options', 'DENY')
+  // Additional security headers (GitHub issue #102)
+  c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  c.header('Content-Security-Policy', "default-src 'none'; img-src data:; style-src 'unsafe-inline'")
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin')
+  c.header('Permissions-Policy', 'geolocation=(), camera=(), microphone=()')
 })
 
 // Health check (no rate limiting - used for monitoring)
