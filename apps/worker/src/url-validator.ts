@@ -264,16 +264,46 @@ export function validateUrlForFetch(url: string): UrlValidationResult {
 }
 
 /**
+ * Default maximum number of redirects to follow
+ */
+const DEFAULT_MAX_REDIRECTS = 5
+
+export interface SafeFetchOptions extends RequestInit {
+  /**
+   * Maximum number of redirects to follow (default: 5)
+   * Set to 0 to disable redirect following
+   */
+  maxRedirects?: number
+}
+
+/**
  * Safely fetch a URL with SSRF protections
  *
+ * Validates the URL before fetching and safely follows redirect chains,
+ * validating each redirect target to prevent SSRF attacks via redirect.
+ *
  * @param url - The URL to fetch (must pass validation)
- * @param options - Additional fetch options
+ * @param options - Additional fetch options including maxRedirects
  * @returns Fetch response
- * @throws Error if URL fails validation or fetch fails
+ * @throws Error if URL fails validation, max redirects exceeded, or fetch fails
  */
 export async function safeFetch(
   url: string,
-  options: RequestInit = {}
+  options: SafeFetchOptions = {}
+): Promise<Response> {
+  const { maxRedirects = DEFAULT_MAX_REDIRECTS, ...fetchOptions } = options
+
+  return safeFetchInternal(url, fetchOptions, maxRedirects, 0)
+}
+
+/**
+ * Internal recursive implementation of safeFetch
+ */
+async function safeFetchInternal(
+  url: string,
+  options: RequestInit,
+  maxRedirects: number,
+  currentDepth: number
 ): Promise<Response> {
   const validation = validateUrlForFetch(url)
   if (!validation.valid) {
@@ -289,6 +319,11 @@ export async function safeFetch(
 
   // Handle redirects safely
   if (response.status >= 300 && response.status < 400) {
+    // Check if we've exceeded the redirect limit
+    if (currentDepth >= maxRedirects) {
+      throw new Error(`Maximum redirects (${maxRedirects}) exceeded`)
+    }
+
     const location = response.headers.get('location')
     if (!location) {
       throw new Error('Redirect without Location header')
@@ -297,18 +332,8 @@ export async function safeFetch(
     // Resolve relative URLs
     const redirectUrl = new URL(location, url).toString()
 
-    // Validate the redirect target
-    const redirectValidation = validateUrlForFetch(redirectUrl)
-    if (!redirectValidation.valid) {
-      throw new Error(`Redirect blocked: ${redirectValidation.error}`)
-    }
-
-    // Follow the redirect (limit depth to prevent infinite loops)
-    // Note: In production, you'd want to track depth across recursive calls
-    return fetch(redirectUrl, {
-      ...options,
-      redirect: 'manual',
-    })
+    // Recursively follow the redirect with validation
+    return safeFetchInternal(redirectUrl, options, maxRedirects, currentDepth + 1)
   }
 
   return response
