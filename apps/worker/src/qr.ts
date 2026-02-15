@@ -6,15 +6,48 @@ import { validateUrlForFetch, safeFetch } from './url-validator'
 // Maximum logo file size (2MB) - prevents DoS via oversized image URLs
 const MAX_LOGO_SIZE = 2 * 1024 * 1024
 
+// Allowed image Content-Type values for logo uploads
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
+
+// Magic bytes signatures for image format validation (defense-in-depth)
+const IMAGE_MAGIC_BYTES: Record<string, { bytes: number[]; offset?: number }> = {
+  'image/png': { bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] }, // PNG signature
+  'image/jpeg': { bytes: [0xff, 0xd8, 0xff] }, // JPEG SOI marker
+  'image/gif': { bytes: [0x47, 0x49, 0x46, 0x38] }, // "GIF8" (GIF87a or GIF89a)
+  'image/webp': { bytes: [0x57, 0x45, 0x42, 0x50], offset: 8 }, // "WEBP" at offset 8 (after RIFF header)
+}
+
 /**
- * Fetch a logo with size limit enforcement.
- * Checks Content-Length header before downloading and validates buffer size after.
- * @throws Error if logo exceeds MAX_LOGO_SIZE
+ * Validate that image bytes match the expected magic signature for the content type.
+ * Returns true if the bytes match the expected format, false otherwise.
+ */
+function validateImageMagicBytes(bytes: Uint8Array, contentType: string): boolean {
+  const signature = IMAGE_MAGIC_BYTES[contentType]
+  if (!signature) return false
+
+  const offset = signature.offset ?? 0
+  if (bytes.length < offset + signature.bytes.length) return false
+
+  return signature.bytes.every((byte, i) => bytes[offset + i] === byte)
+}
+
+/**
+ * Fetch a logo with size limit and content-type validation.
+ * Checks Content-Length and Content-Type headers before downloading,
+ * then validates magic bytes after download for defense-in-depth.
+ * @throws Error if logo exceeds MAX_LOGO_SIZE or has invalid content type
  */
 async function fetchLogoWithSizeLimit(logoUrl: string): Promise<Response> {
   const response = await safeFetch(logoUrl)
   if (!response.ok) {
     throw new Error(`Failed to fetch logo: ${response.status}`)
+  }
+
+  // Validate Content-Type header against allowlist
+  const rawContentType = response.headers.get('content-type')
+  const contentType = rawContentType?.split(';')[0]?.trim()
+  if (!contentType || !ALLOWED_IMAGE_TYPES.includes(contentType as typeof ALLOWED_IMAGE_TYPES[number])) {
+    throw new Error(`Invalid logo content-type: ${contentType ?? 'none'}`)
   }
 
   // Check Content-Length header if available (early rejection)
@@ -136,7 +169,7 @@ async function compositeLogoOnQR(
   size: number,
   logoSizeRatio: number
 ): Promise<Uint8Array> {
-  // Validate and fetch the logo image with SSRF protection and size limit
+  // Validate and fetch the logo image with SSRF protection, size limit, and content-type validation
   const logoResponse = await fetchLogoWithSizeLimit(logoUrl)
   
   const logoBuffer = await logoResponse.arrayBuffer()
@@ -147,6 +180,12 @@ async function compositeLogoOnQR(
   }
   
   const logoBytes = new Uint8Array(logoBuffer)
+  
+  // Defense-in-depth: Validate magic bytes match the declared content-type
+  const contentType = logoResponse.headers.get('content-type')?.split(';')[0]?.trim() ?? ''
+  if (!validateImageMagicBytes(logoBytes, contentType)) {
+    throw new Error(`Logo file signature does not match content-type: ${contentType}`)
+  }
   
   // Load QR code as PhotonImage
   const qrImage = PhotonImage.new_from_byteslice(new Uint8Array(qrBuffer))
@@ -232,17 +271,24 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 /**
  * Fetch a logo image and convert it to a base64 data URI.
  * This prevents viewer IP leakage by proxying the logo through the server.
- * Enforces size limits to prevent DoS via oversized images.
+ * Enforces size limits and validates content-type to prevent malicious file processing.
  */
 async function fetchLogoAsDataUri(logoUrl: string): Promise<string> {
   const response = await fetchLogoWithSizeLimit(logoUrl)
 
-  const contentType = response.headers.get('content-type') || 'image/png'
+  const rawContentType = response.headers.get('content-type')
+  const contentType = rawContentType?.split(';')[0]?.trim() || 'image/png'
   const arrayBuffer = await response.arrayBuffer()
   
   // Verify actual size after download (Content-Length can be spoofed or missing)
   if (arrayBuffer.byteLength > MAX_LOGO_SIZE) {
     throw new Error(`Logo exceeds maximum size: ${arrayBuffer.byteLength} bytes (max ${MAX_LOGO_SIZE})`)
+  }
+  
+  // Defense-in-depth: Validate magic bytes match the declared content-type
+  const bytes = new Uint8Array(arrayBuffer)
+  if (!validateImageMagicBytes(bytes, contentType)) {
+    throw new Error(`Logo file signature does not match content-type: ${contentType}`)
   }
   
   const base64 = arrayBufferToBase64(arrayBuffer)
