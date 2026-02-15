@@ -94,6 +94,24 @@ function parseOptions(c: Context): QROptions {
   return { size, format, logo, logoSize }
 }
 
+/**
+ * Build a normalized cache key URL that includes all query params affecting QR output.
+ * This ensures different parameter combinations are cached separately.
+ */
+function buildCacheKey(c: Context, slug: string, options: QROptions): string {
+  const url = new URL(c.req.url)
+  // Normalize the URL to ensure consistent cache keys
+  // Include only params that affect output (size, format, logo, logo_size)
+  const cacheUrl = new URL(`https://gitly.sh/${slug}/qr`)
+  cacheUrl.searchParams.set('size', String(options.size))
+  cacheUrl.searchParams.set('format', options.format)
+  if (options.logo) {
+    cacheUrl.searchParams.set('logo', options.logo)
+    cacheUrl.searchParams.set('logo_size', String(options.logoSize))
+  }
+  return cacheUrl.toString()
+}
+
 export async function handleQR(c: Context<{ Bindings: Bindings }>) {
   const slug = c.req.param('slug')
   
@@ -104,12 +122,27 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
   }
 
   const options = parseOptions(c)
+  
+  // Use Cache API with explicit cache key including all query params
+  // This ensures different size/format/logo combinations are cached separately
+  const cache = caches.default
+  const cacheKey = buildCacheKey(c, slug, options)
+  const cacheRequest = new Request(cacheKey)
+  
+  // Check cache first
+  const cachedResponse = await cache.match(cacheRequest)
+  if (cachedResponse) {
+    return cachedResponse
+  }
+
   const targetUrl = `https://gitly.sh/${slug}`
 
   // Use higher error correction when logo is present
   const errorCorrectionLevel = options.logo ? 'H' : 'M'
 
   try {
+    let response: Response
+
     if (options.format === 'svg') {
       const svg = await QRCode.toString(targetUrl, {
         type: 'svg',
@@ -131,9 +164,12 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
         }
       }
 
-      return c.body(finalSvg, 200, {
-        'Content-Type': 'image/svg+xml',
-        'Cache-Control': 'public, max-age=3600',
+      response = new Response(finalSvg, {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/svg+xml',
+          'Cache-Control': 'public, max-age=3600',
+        },
       })
     } else {
       // PNG output with optional logo compositing via photon
@@ -158,7 +194,7 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
         outputBytes = new Uint8Array(buffer)
       }
 
-      return new Response(outputBytes, {
+      response = new Response(outputBytes, {
         status: 200,
         headers: {
           'Content-Type': 'image/png',
@@ -166,6 +202,11 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
         },
       })
     }
+
+    // Store in cache with the explicit key (clone since response body is consumed)
+    c.executionCtx.waitUntil(cache.put(cacheRequest, response.clone()))
+
+    return response
   } catch (error) {
     console.error('QR generation failed:', error)
     return c.json({ error: 'Failed to generate QR code' }, 500)
