@@ -5,6 +5,8 @@ on:
     - cron: '0 * * * *'  # Hourly
   workflow_dispatch:
 
+# Force schedule re-registration (2026-02-16)
+
 jobs:
   sync:
     runs-on: ubuntu-latest
