@@ -316,25 +316,30 @@ async function recordClick(c: any, slug: string): Promise<void> {
   try {
     const now = Math.floor(Date.now() / 1000)
     const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD for hash salt
-    
+
+    // Increment denormalized counter first (always count clicks, even if detailed analytics fails)
+    await c.env.DB.prepare(`
+      UPDATE links SET clicks = clicks + 1 WHERE slug = ?1
+    `).bind(slug).run()
+
     // Validate HASH_SECRET before attempting to hash IP
-    // If missing or weak, log error and skip analytics (don't fail redirect)
+    // If missing or weak, log error and skip detailed analytics (click already counted above)
     const secretError = validateHashSecret(c.env.HASH_SECRET)
     if (secretError) {
-      console.error(`Skipping analytics: ${secretError}`)
+      console.error(`Skipping detailed analytics: ${secretError}`)
       return
     }
-    
+
     // Extract data from request (truncate UA to prevent storage abuse)
     const rawUa = c.req.header('User-Agent')
     const ua = rawUa ? rawUa.slice(0, MAX_UA_LENGTH) : null
     const rawReferrer = c.req.header('Referer')
     const referrer = rawReferrer ? rawReferrer.slice(0, MAX_REFERRER_LENGTH) : null
     const cf = (c.req.raw as any).cf || {}
-    
+
     // Parse user agent
     const parsed = parseUserAgent(ua)
-    
+
     // Hash IP for unique visitor tracking (HMAC with secret + daily salt)
     const ip = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown'
     const visitorHash = await hashIP(ip, today, c.env.HASH_SECRET)
@@ -355,11 +360,6 @@ async function recordClick(c: any, slug: string): Promise<void> {
       visitorHash,
       ua
     ).run()
-
-    // Increment denormalized counter (best effort)
-    await c.env.DB.prepare(`
-      UPDATE links SET clicks = clicks + 1 WHERE slug = ?1
-    `).bind(slug).run()
 
   } catch (error) {
     // Log but don't fail the redirect

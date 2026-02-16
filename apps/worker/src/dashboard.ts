@@ -399,7 +399,7 @@ export async function handleDashboard(c: Context): Promise<Response> {
 </body>
 </html>`
 
-    return c.html(html)
+    return c.html(html, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' })
   } catch (error) {
     console.error('Dashboard query failed:', error)
     return c.text('Internal Server Error', 500)
