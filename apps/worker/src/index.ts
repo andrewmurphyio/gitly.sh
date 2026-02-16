@@ -264,6 +264,12 @@ app.get('/:slug',
   async (c) => {
   const slug = c.req.param('slug')
   
+  // Handle @username profile pages (Hono's router may match /:slug before /@:username)
+  // This ensures gitly.sh/@username correctly shows the user's dashboard
+  if (slug.startsWith('@')) {
+    return handleDashboard(c)
+  }
+  
   // Skip reserved slugs (case-insensitive, matches scripts/sync-links.ts validation)
   if (RESERVED_SLUGS.has(slug.toLowerCase())) {
     return c.notFound()
