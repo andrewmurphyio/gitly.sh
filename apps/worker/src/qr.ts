@@ -588,8 +588,9 @@ async function fetchLogoAsDataUri(logoUrl: string): Promise<string> {
     const errorMessage = e instanceof Error ? e.message : String(e)
     throw new Error(`Failed to convert logo to PNG: ${errorMessage}`)
   }
-  
-  const base64 = arrayBufferToBase64(pngBytes.buffer as ArrayBuffer)
+
+  // Copy to own ArrayBuffer — pngBytes.buffer may be WASM linear memory
+  const base64 = arrayBufferToBase64(pngBytes.slice().buffer as ArrayBuffer)
 
   return `data:image/png;base64,${base64}`
 }

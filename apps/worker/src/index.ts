@@ -65,8 +65,8 @@ app.use('*', async (c, next) => {
   c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
   // CSP - restrictive policy allowing only what's needed:
   // - style-src 'unsafe-inline': dashboard uses inline <style> tag
-  // - img-src 'self': QR code images served from same origin
-  c.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'")
+  // - img-src 'self' data:: QR images from same origin, data URIs for logos embedded in SVG QR codes
+  c.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:")
   // Referrer policy - send origin for cross-origin, full URL for same-origin
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin')
   // Permissions policy - disable sensitive browser features
