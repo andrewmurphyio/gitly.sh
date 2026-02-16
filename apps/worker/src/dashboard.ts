@@ -163,10 +163,18 @@ function truncateUrl(url: string, maxLength = 60): string {
 }
 
 export async function handleDashboard(c: Context): Promise<Response> {
-  const username = c.req.param('username')
+  // Support both /@:username route and fallback from /:slug route
+  // When called from /:slug, the slug includes the @ prefix which we strip
+  let username = c.req.param('username')
+  if (!username) {
+    const slug = c.req.param('slug')
+    if (slug?.startsWith('@')) {
+      username = slug.slice(1)
+    }
+  }
   
-  // Validate username format (alphanumeric, hyphens, underscores)
-  if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+  // Validate username exists and matches format (alphanumeric, hyphens, underscores)
+  if (!username || !/^[a-zA-Z0-9_-]+$/.test(username)) {
     return c.notFound()
   }
 
