@@ -257,15 +257,19 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
     } else {
       // PNG output with optional logo compositing via photon
       console.log(`[QR:${requestId}] Generating PNG QR code`)
-      let buffer: Buffer
+      let qrBytes: Uint8Array
       try {
-        buffer = await QRCode.toBuffer(targetUrl, {
-          type: 'png',
+        // Use toDataURL instead of toBuffer - the qrcode package's browser build
+        // (used by Wrangler/Workers) doesn't export toBuffer
+        const dataUrl = await QRCode.toDataURL(targetUrl, {
+          type: 'image/png',
           width: options.size,
           errorCorrectionLevel,
           margin: 2,
         })
-        console.log(`[QR:${requestId}] PNG buffer generated, size=${buffer.length} bytes`)
+        const base64 = dataUrl.split(',')[1]
+        qrBytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
+        console.log(`[QR:${requestId}] PNG generated, size=${qrBytes.length} bytes`)
       } catch (pngError) {
         const errorMessage = pngError instanceof Error ? pngError.message : String(pngError)
         console.error(`[QR:${requestId}] PNG generation failed: ${errorMessage}`, pngError)
@@ -281,16 +285,16 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
       if (resolvedLogo) {
         try {
           console.log(`[QR:${requestId}] Compositing logo onto PNG: ${resolvedLogo}`)
-          outputBytes = await compositeLogoOnQR(buffer, resolvedLogo, options.size, options.logoSize)
+          outputBytes = await compositeLogoOnQR(qrBytes, resolvedLogo, options.size, options.logoSize)
           console.log(`[QR:${requestId}] Logo composited successfully, output size=${outputBytes.length} bytes`)
         } catch (logoError) {
           const errorMessage = logoError instanceof Error ? logoError.message : String(logoError)
           console.error(`[QR:${requestId}] Logo compositing failed: ${errorMessage}`, logoError)
           // Fall back to QR without logo
-          outputBytes = new Uint8Array(buffer)
+          outputBytes = qrBytes
         }
       } else {
-        outputBytes = new Uint8Array(buffer)
+        outputBytes = qrBytes
       }
 
       response = new Response(outputBytes, {
@@ -324,7 +328,7 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
  * Composite a logo onto a QR code PNG using photon WASM
  */
 async function compositeLogoOnQR(
-  qrBuffer: Buffer,
+  qrBuffer: Uint8Array,
   logoUrl: string,
   size: number,
   logoSizeRatio: number
@@ -357,7 +361,7 @@ async function compositeLogoOnQR(
   console.log(`[compositeLogoOnQR] Loading QR image into Photon`)
   let qrImage: PhotonImage
   try {
-    qrImage = PhotonImage.new_from_byteslice(new Uint8Array(qrBuffer))
+    qrImage = PhotonImage.new_from_byteslice(qrBuffer)
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e)
     throw new Error(`Failed to load QR image into Photon: ${errorMessage}`)
