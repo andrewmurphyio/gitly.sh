@@ -153,6 +153,73 @@ function buildCacheKey(c: Context, slug: string, options: QROptions, resolvedLog
   return cacheUrl.toString()
 }
 
+/**
+ * Render a QR code matrix to PNG bytes using Photon WASM.
+ * This avoids the canvas dependency that qrcode's toDataURL/toBuffer requires.
+ * 
+ * @param qrData - The QR code data from QRCode.create()
+ * @param size - Target image size in pixels
+ * @param margin - Quiet zone margin in modules (typically 4)
+ * @returns PNG image as Uint8Array
+ */
+function renderQRToPng(
+  qrData: { modules: { size: number; data: Uint8Array }; version: number },
+  size: number,
+  margin: number = 2
+): Uint8Array {
+  const moduleCount = qrData.modules.size
+  const totalModules = moduleCount + margin * 2
+  
+  // Calculate scale to fit the target size
+  const scale = Math.floor(size / totalModules)
+  const actualSize = scale * totalModules
+  
+  // Create RGBA pixel buffer
+  const pixels = new Uint8Array(actualSize * actualSize * 4)
+  
+  // Fill with white background
+  for (let i = 0; i < pixels.length; i += 4) {
+    pixels[i] = 255     // R
+    pixels[i + 1] = 255 // G
+    pixels[i + 2] = 255 // B
+    pixels[i + 3] = 255 // A
+  }
+  
+  // Draw QR modules
+  // The modules.data is a Uint8Array where each byte represents a module
+  // A non-zero value means the module is dark (black)
+  for (let row = 0; row < moduleCount; row++) {
+    for (let col = 0; col < moduleCount; col++) {
+      const moduleIndex = row * moduleCount + col
+      const isDark = qrData.modules.data[moduleIndex] === 1
+      
+      if (isDark) {
+        // Calculate pixel position (accounting for margin)
+        const pixelX = (col + margin) * scale
+        const pixelY = (row + margin) * scale
+        
+        // Fill the scaled module area with black
+        for (let py = 0; py < scale; py++) {
+          for (let px = 0; px < scale; px++) {
+            const pixelIndex = ((pixelY + py) * actualSize + (pixelX + px)) * 4
+            pixels[pixelIndex] = 0       // R
+            pixels[pixelIndex + 1] = 0   // G
+            pixels[pixelIndex + 2] = 0   // B
+            pixels[pixelIndex + 3] = 255 // A
+          }
+        }
+      }
+    }
+  }
+  
+  // Create PhotonImage and get PNG bytes
+  const image = new PhotonImage(pixels, actualSize, actualSize)
+  const pngBytes = image.get_bytes()
+  image.free()
+  
+  return pngBytes
+}
+
 export async function handleQR(c: Context<{ Bindings: Bindings }>) {
   const slug = c.req.param('slug')
   const requestId = crypto.randomUUID().slice(0, 8) // Short ID for log correlation
@@ -259,16 +326,13 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
       console.log(`[QR:${requestId}] Generating PNG QR code`)
       let qrBytes: Uint8Array
       try {
-        // Use toDataURL instead of toBuffer - the qrcode package's browser build
-        // (used by Wrangler/Workers) doesn't export toBuffer
-        const dataUrl = await QRCode.toDataURL(targetUrl, {
-          type: 'image/png',
-          width: options.size,
+        // Use QRCode.create() to get the raw QR matrix, then render with Photon.
+        // This avoids qrcode's toDataURL/toBuffer which require a canvas element
+        // (the browser build that Wrangler bundles doesn't work without DOM).
+        const qrData = QRCode.create(targetUrl, {
           errorCorrectionLevel,
-          margin: 2,
         })
-        const base64 = dataUrl.split(',')[1]
-        qrBytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
+        qrBytes = renderQRToPng(qrData, options.size, 2)
         console.log(`[QR:${requestId}] PNG generated, size=${qrBytes.length} bytes`)
       } catch (pngError) {
         const errorMessage = pngError instanceof Error ? pngError.message : String(pngError)
@@ -429,8 +493,10 @@ async function compositeLogoOnQR(
   resizedLogo.free()
   
   // Calculate center position on QR code
-  const centerX = Math.round((size - bgSize) / 2)
-  const centerY = Math.round((size - bgSize) / 2)
+  const qrWidth = qrImage.get_width()
+  const qrHeight = qrImage.get_height()
+  const centerX = Math.round((qrWidth - bgSize) / 2)
+  const centerY = Math.round((qrHeight - bgSize) / 2)
   console.log(`[compositeLogoOnQR] Centering on QR: centerX=${centerX}, centerY=${centerY}`)
   
   // Composite the logo-with-background onto the QR code
