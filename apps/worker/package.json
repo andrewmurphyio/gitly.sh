@@ -10,7 +10,8 @@
   "dependencies": {
     "@cf-wasm/photon": "^0.3.4",
     "hono": "^4.0.0",
-    "qrcode": "^1.5.3"
+    "qrcode": "^1.5.3",
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250204.0",

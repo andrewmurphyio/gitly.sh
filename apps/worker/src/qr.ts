@@ -1,5 +1,6 @@
 import { Context } from 'hono'
 import * as QRCode from 'qrcode'
+import qrGenerator from 'qrcode-generator'
 import { PhotonImage, SamplingFilter, resize, watermark } from '@cf-wasm/photon/workerd'
 import { validateUrlForFetch, safeFetch } from './url-validator'
 
@@ -10,7 +11,7 @@ const MAX_LOGO_SIZE = 2 * 1024 * 1024
 const LOGO_FETCH_TIMEOUT = 5000
 
 // Allowed image Content-Type values for logo uploads
-const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/vnd.microsoft.icon', 'image/x-icon'] as const
 
 // Magic bytes signatures for image format validation (defense-in-depth)
 const IMAGE_MAGIC_BYTES: Record<string, { bytes: number[]; offset?: number }> = {
@@ -18,6 +19,8 @@ const IMAGE_MAGIC_BYTES: Record<string, { bytes: number[]; offset?: number }> = 
   'image/jpeg': { bytes: [0xff, 0xd8, 0xff] }, // JPEG SOI marker
   'image/gif': { bytes: [0x47, 0x49, 0x46, 0x38] }, // "GIF8" (GIF87a or GIF89a)
   'image/webp': { bytes: [0x57, 0x45, 0x42, 0x50], offset: 8 }, // "WEBP" at offset 8 (after RIFF header)
+  'image/vnd.microsoft.icon': { bytes: [0x00, 0x00, 0x01, 0x00] }, // ICO format
+  'image/x-icon': { bytes: [0x00, 0x00, 0x01, 0x00] }, // ICO format (alternative MIME)
 }
 
 /**
@@ -243,7 +246,8 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
         } catch (logoError) {
           const errorMessage = logoError instanceof Error ? logoError.message : String(logoError)
           console.warn(`[QR:${requestId}] Logo fetch failed for SVG, using QR without logo: ${errorMessage}`, logoError)
-          // Fall back to QR without logo
+          // DEBUG: Add error as XML comment in SVG
+          finalSvg = svg.replace('</svg>', `<!-- LOGO_ERROR: ${errorMessage.replace(/--/g, '__')} --></svg>`)
         }
       }
 
@@ -258,18 +262,62 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
       // PNG output with optional logo compositing via photon
       console.log(`[QR:${requestId}] Generating PNG QR code`)
       let qrBytes: Uint8Array
+      let qrModuleCount: number = 33 // Default estimate
+      let qrCellSize: number = 8
+      let qrMargin: number = 2
       try {
-        // Use toDataURL instead of toBuffer - the qrcode package's browser build
-        // (used by Wrangler/Workers) doesn't export toBuffer
-        const dataUrl = await QRCode.toDataURL(targetUrl, {
-          type: 'image/png',
-          width: options.size,
-          errorCorrectionLevel,
-          margin: 2,
-        })
-        const base64 = dataUrl.split(',')[1]
-        qrBytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
-        console.log(`[QR:${requestId}] PNG generated, size=${qrBytes.length} bytes`)
+        // Use qrcode-generator to get QR matrix, then render with photon for proper PNG
+        const typeNumber = 0 // Auto-detect
+        const ecLevel: 'L' | 'M' | 'Q' | 'H' = errorCorrectionLevel as 'L' | 'M' | 'Q' | 'H'
+        const qr = qrGenerator(typeNumber, ecLevel)
+        qr.addData(targetUrl)
+        qr.make()
+        
+        const moduleCount = qr.getModuleCount()
+        const margin = 2
+        const cellSize = Math.floor((options.size - margin * 2) / moduleCount)
+        // Store for logo compositing grid alignment
+        qrModuleCount = moduleCount
+        qrCellSize = cellSize
+        qrMargin = margin
+        const actualSize = cellSize * moduleCount + margin * 2
+        
+        // Create white image and draw QR modules using photon
+        const pixels = new Uint8Array(actualSize * actualSize * 4)
+        // Fill with white
+        for (let i = 0; i < pixels.length; i += 4) {
+          pixels[i] = 255     // R
+          pixels[i + 1] = 255 // G  
+          pixels[i + 2] = 255 // B
+          pixels[i + 3] = 255 // A
+        }
+        
+        // Draw black modules
+        for (let row = 0; row < moduleCount; row++) {
+          for (let col = 0; col < moduleCount; col++) {
+            if (qr.isDark(row, col)) {
+              const x0 = margin + col * cellSize
+              const y0 = margin + row * cellSize
+              for (let dy = 0; dy < cellSize; dy++) {
+                for (let dx = 0; dx < cellSize; dx++) {
+                  const px = x0 + dx
+                  const py = y0 + dy
+                  const idx = (py * actualSize + px) * 4
+                  pixels[idx] = 0     // R
+                  pixels[idx + 1] = 0 // G
+                  pixels[idx + 2] = 0 // B
+                  pixels[idx + 3] = 255 // A
+                }
+              }
+            }
+          }
+        }
+        
+        // Convert to PNG using photon
+        const qrImage = new PhotonImage(pixels, actualSize, actualSize)
+        qrBytes = qrImage.get_bytes()
+        qrImage.free()
+        console.log(`[QR:${requestId}] PNG generated via photon, size=${qrBytes.length} bytes`)
       } catch (pngError) {
         const errorMessage = pngError instanceof Error ? pngError.message : String(pngError)
         console.error(`[QR:${requestId}] PNG generation failed: ${errorMessage}`, pngError)
@@ -285,7 +333,7 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
       if (resolvedLogo) {
         try {
           console.log(`[QR:${requestId}] Compositing logo onto PNG: ${resolvedLogo}`)
-          outputBytes = await compositeLogoOnQR(qrBytes, resolvedLogo, options.size, options.logoSize)
+          outputBytes = await compositeLogoOnQR(qrBytes, resolvedLogo, options.size, options.logoSize, qrModuleCount, qrCellSize, qrMargin)
           console.log(`[QR:${requestId}] Logo composited successfully, output size=${outputBytes.length} bytes`)
         } catch (logoError) {
           const errorMessage = logoError instanceof Error ? logoError.message : String(logoError)
@@ -331,7 +379,10 @@ async function compositeLogoOnQR(
   qrBuffer: Uint8Array,
   logoUrl: string,
   size: number,
-  logoSizeRatio: number
+  logoSizeRatio: number,
+  moduleCount?: number,
+  cellSize?: number,
+  margin?: number
 ): Promise<Uint8Array> {
   console.log(`[compositeLogoOnQR] Starting. logoUrl=${logoUrl}, size=${size}, logoSizeRatio=${logoSizeRatio}`)
   
@@ -378,21 +429,32 @@ async function compositeLogoOnQR(
     throw new Error(`Failed to decode logo image: ${errorMessage}`)
   }
   
-  // Calculate target logo dimensions
-  const logoPixels = Math.round(size * logoSizeRatio)
-  const padding = Math.round(logoPixels * 0.15) // 15% padding for white background
-  console.log(`[compositeLogoOnQR] Logo dimensions: logoPixels=${logoPixels}, padding=${padding}`)
-  
-  // Resize logo to target size
+  // Calculate QR module grid info first (needed for grid-aligned logo sizing)
+  const qrWidth = qrImage.get_width()
+  const actualMargin = margin ?? 2
+  const actualModuleCount = moduleCount ?? 33
+  const actualCellSize = cellSize ?? Math.floor((qrWidth - actualMargin * 2) / actualModuleCount)
+
+  // Calculate logo area snapped to QR module grid so edges don't cut through modules
+  const qrContentSize = actualModuleCount * actualCellSize
+  const desiredLogoPx = Math.round(qrContentSize * logoSizeRatio)
+  // Convert to modules: logo + 1 module padding on each side
+  let logoModules = Math.ceil(desiredLogoPx / actualCellSize)
+  let bgModules = logoModules + 2 // 1 module white padding per side
+  // Ensure odd count so it centers perfectly in the odd-sized module grid
+  if (bgModules % 2 === 0) bgModules += 1
+  logoModules = bgModules - 2
+
+  const bgSize = bgModules * actualCellSize
+  const logoPixels = logoModules * actualCellSize
+  const paddingPx = actualCellSize // exactly 1 module of white padding
+  console.log(`[compositeLogoOnQR] Grid-aligned: bgModules=${bgModules}, bgSize=${bgSize}, logoPixels=${logoPixels}, cellSize=${actualCellSize}`)
+
+  // Resize logo to grid-aligned size
   console.log(`[compositeLogoOnQR] Resizing logo`)
   let resizedLogo: PhotonImage
   try {
-    resizedLogo = resize(
-      logoImage,
-      logoPixels,
-      logoPixels,
-      SamplingFilter.Lanczos3 // High quality resize
-    )
+    resizedLogo = resize(logoImage, logoPixels, logoPixels, SamplingFilter.Lanczos3)
   } catch (e) {
     logoImage.free()
     qrImage.free()
@@ -400,9 +462,8 @@ async function compositeLogoOnQR(
     throw new Error(`Failed to resize logo: ${errorMessage}`)
   }
   logoImage.free()
-  
-  // Create white background for logo
-  const bgSize = logoPixels + padding * 2
+
+  // Create white background at grid-aligned size (covers exact whole modules)
   console.log(`[compositeLogoOnQR] Creating white background, size=${bgSize}`)
   let whiteBackground: PhotonImage
   try {
@@ -413,12 +474,11 @@ async function compositeLogoOnQR(
     const errorMessage = e instanceof Error ? e.message : String(e)
     throw new Error(`Failed to create white background: ${errorMessage}`)
   }
-  
-  // Composite logo onto white background (centered)
-  // watermark takes bigint for x,y coordinates
+
+  // Composite logo onto white background (centered with 1-module padding)
   console.log(`[compositeLogoOnQR] Compositing logo onto white background`)
   try {
-    watermark(whiteBackground, resizedLogo, BigInt(padding), BigInt(padding))
+    watermark(whiteBackground, resizedLogo, BigInt(paddingPx), BigInt(paddingPx))
   } catch (e) {
     resizedLogo.free()
     whiteBackground.free()
@@ -427,11 +487,12 @@ async function compositeLogoOnQR(
     throw new Error(`Failed to watermark logo onto background: ${errorMessage}`)
   }
   resizedLogo.free()
-  
-  // Calculate center position on QR code
-  const centerX = Math.round((size - bgSize) / 2)
-  const centerY = Math.round((size - bgSize) / 2)
-  console.log(`[compositeLogoOnQR] Centering on QR: centerX=${centerX}, centerY=${centerY}`)
+
+  // Center position snapped to module grid
+  const logoStartModule = Math.floor((actualModuleCount - bgModules) / 2)
+  const centerX = actualMargin + logoStartModule * actualCellSize
+  const centerY = centerX
+  console.log(`[compositeLogoOnQR] Centering on QR: centerX=${centerX}, centerY=${centerY}, bgModules=${bgModules}`)
   
   // Composite the logo-with-background onto the QR code
   console.log(`[compositeLogoOnQR] Compositing logo+background onto QR code`)
@@ -516,48 +577,81 @@ async function fetchLogoAsDataUri(logoUrl: string): Promise<string> {
     throw new Error(`Logo file signature does not match content-type: ${contentType}`)
   }
   
-  const base64 = arrayBufferToBase64(arrayBuffer)
+  // Convert all image formats to PNG for consistent SVG embedding
+  // (ICO and other formats may not render in SVG <image> tags)
+  let pngBytes: Uint8Array
+  try {
+    const logoImage = PhotonImage.new_from_byteslice(bytes)
+    pngBytes = logoImage.get_bytes() // get_bytes() returns PNG format
+    logoImage.free()
+  } catch (e) {
+    const errorMessage = e instanceof Error ? e.message : String(e)
+    throw new Error(`Failed to convert logo to PNG: ${errorMessage}`)
+  }
+  
+  const base64 = arrayBufferToBase64(pngBytes.buffer as ArrayBuffer)
 
-  return `data:${contentType};base64,${base64}`
+  return `data:image/png;base64,${base64}`
 }
 
 /**
- * Embed a logo into an SVG QR code.
- * @param logoDataUri - A data URI (base64-encoded image) to embed
+ * Embed a logo into an SVG QR code using xlink:href for broad compatibility.
+ * Parses the viewBox to correctly position the logo in SVG coordinate space.
  */
 function embedLogoInSvg(svg: string, logoDataUri: string, size: number, logoSize: number): string {
-  const logoPixels = Math.round(size * logoSize)
-  const logoOffset = Math.round((size - logoPixels) / 2)
-  const padding = Math.round(logoPixels * 0.1)
+  // Parse viewBox to get actual SVG coordinate system
+  const viewBoxMatch = svg.match(/viewBox=["']([^"']+)["']/)
+  let svgSize = size // Default to pixel size
+  if (viewBoxMatch) {
+    const parts = viewBoxMatch[1].split(/\s+/)
+    if (parts.length >= 4) {
+      svgSize = parseFloat(parts[2]) // width from viewBox
+    }
+  }
   
+  // In qrcode library SVG, each module is 1 unit, margin is 2 units per side
+  const svgMargin = 2
+  const moduleCount = svgSize - svgMargin * 2
+
+  // Calculate logo area snapped to module grid
+  let logoModules = Math.ceil(moduleCount * logoSize)
+  let bgModules = logoModules + 2 // 1 module white padding per side
+  if (bgModules % 2 === 0) bgModules += 1
+  logoModules = bgModules - 2
+
+  const logoStartModule = Math.floor((moduleCount - bgModules) / 2)
+  const bgX = svgMargin + logoStartModule
+  const bgY = bgX
+  const logoX = bgX + 1 // 1 module padding
+  const logoY = logoX
+
+  // Ensure SVG has xlink namespace for broad browser compatibility
+  let updatedSvg = svg
+  if (!svg.includes('xmlns:xlink')) {
+    updatedSvg = svg.replace('<svg', '<svg xmlns:xlink="http://www.w3.org/1999/xlink"')
+  }
+
   // Create a white background rect and image element for the logo
+  // All dimensions snapped to module grid boundaries
   const logoElements = `
-    <rect 
-      x="${logoOffset - padding}" 
-      y="${logoOffset - padding}" 
-      width="${logoPixels + padding * 2}" 
-      height="${logoPixels + padding * 2}" 
+    <rect
+      x="${bgX}"
+      y="${bgY}"
+      width="${bgModules}"
+      height="${bgModules}"
       fill="white"
     />
-    <image 
-      href="${escapeXml(logoDataUri)}" 
-      x="${logoOffset}" 
-      y="${logoOffset}" 
-      width="${logoPixels}" 
-      height="${logoPixels}"
+    <image
+      xlink:href="${logoDataUri}"
+      href="${logoDataUri}"
+      x="${logoX}"
+      y="${logoY}"
+      width="${logoModules}"
+      height="${logoModules}"
       preserveAspectRatio="xMidYMid meet"
     />
   `
   
   // Insert before closing </svg> tag
-  return svg.replace('</svg>', `${logoElements}</svg>`)
-}
-
-function escapeXml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
+  return updatedSvg.replace('</svg>', `${logoElements}</svg>`)
 }
