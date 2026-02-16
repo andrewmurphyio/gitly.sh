@@ -214,22 +214,73 @@ const qrSizePresets = [
 // SVG icons for copy and download actions
 const copyIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>`
 
-// JavaScript for copy functionality
+// JavaScript for copy functionality - copies actual image to clipboard
 const copyScript = `
 <script>
-async function copyQrUrl(btn, url) {
-  try {
-    await navigator.clipboard.writeText(url);
+async function copyQrImage(btn, url) {
+  const origText = btn.innerHTML;
+  const showSuccess = () => {
     btn.classList.add('copied');
-    const origText = btn.innerHTML;
     btn.innerHTML = btn.innerHTML.replace(/\\d+px/, '✓ Copied');
     setTimeout(() => {
       btn.classList.remove('copied');
       btn.innerHTML = origText;
     }, 1500);
+  };
+  const showError = (msg) => {
+    btn.innerHTML = btn.innerHTML.replace(/\\d+px/, '✗ ' + msg);
+    setTimeout(() => { btn.innerHTML = origText; }, 2000);
+  };
+  
+  try {
+    // Check if clipboard image writing is supported
+    if (!navigator.clipboard || !navigator.clipboard.write || typeof ClipboardItem === 'undefined') {
+      // Fallback: copy URL instead
+      await navigator.clipboard.writeText(url);
+      showSuccess();
+      return;
+    }
+    
+    // Fetch the QR image as a blob
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to fetch');
+    const blob = await response.blob();
+    
+    // The QR endpoint returns PNG, but we need to ensure it's the right MIME type
+    // Some browsers only accept image/png for clipboard
+    let pngBlob = blob;
+    if (blob.type !== 'image/png') {
+      // Convert to PNG using canvas
+      const img = new Image();
+      const canvas = document.createElement('canvas');
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = URL.createObjectURL(blob);
+      });
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(img.src);
+      pngBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    }
+    
+    // Write image to clipboard
+    await navigator.clipboard.write([
+      new ClipboardItem({ 'image/png': pngBlob })
+    ]);
+    showSuccess();
   } catch (e) {
-    // Fallback: open in new tab
-    window.open(url, '_blank');
+    console.error('Copy failed:', e);
+    // Fallback: try copying URL, or open in new tab
+    try {
+      await navigator.clipboard.writeText(url);
+      showSuccess();
+    } catch (e2) {
+      showError('Failed');
+      window.open(url, '_blank');
+    }
   }
 }
 </script>
@@ -289,7 +340,7 @@ export async function handleDashboard(c: Context): Promise<Response> {
     const generateQrSizeButtons = (slug: string) => {
       return qrSizePresets.map(preset => {
         const qrUrl = `https://gitly.sh/${escapeHtml(slug)}/qr?size=${preset.size}`
-        return `<button class="qr-size-btn" title="${preset.title}" onclick="copyQrUrl(this, '${qrUrl}')">${copyIcon}${preset.label}</button>`
+        return `<button class="qr-size-btn" title="${preset.title}" onclick="copyQrImage(this, '${qrUrl}')">${copyIcon}${preset.label}</button>`
       }).join('')
     }
 
