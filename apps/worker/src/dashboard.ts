@@ -70,6 +70,41 @@ const styles = `
     height: 100%;
     object-fit: contain;
   }
+  .qr-sizes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+  }
+  .qr-size-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.7rem;
+    font-family: inherit;
+    background: #1f1f1f;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #aaa;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-decoration: none;
+  }
+  .qr-size-btn:hover {
+    background: #2a2a2a;
+    border-color: #555;
+    color: #fff;
+  }
+  .qr-size-btn.copied {
+    background: #1e3a2e;
+    border-color: #2d5a3f;
+    color: #4ade80;
+  }
+  .qr-size-btn svg {
+    width: 12px;
+    height: 12px;
+  }
   .link-info {
     flex: 1;
     min-width: 0;
@@ -162,7 +197,42 @@ const styles = `
     .meta {
       justify-content: center;
     }
+    .qr-sizes {
+      justify-content: center;
+    }
   }
+`
+
+// QR size presets with labels and use cases
+const qrSizePresets = [
+  { size: 128, label: '128px', title: 'Small - Profile pics, favicons' },
+  { size: 256, label: '256px', title: 'Medium - Social media, web' },
+  { size: 512, label: '512px', title: 'Large - Print, presentations' },
+  { size: 1024, label: '1024px', title: 'XL - High-res print, posters' },
+]
+
+// SVG icons for copy and download actions
+const copyIcon = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>`
+
+// JavaScript for copy functionality
+const copyScript = `
+<script>
+async function copyQrUrl(btn, url) {
+  try {
+    await navigator.clipboard.writeText(url);
+    btn.classList.add('copied');
+    const origText = btn.innerHTML;
+    btn.innerHTML = btn.innerHTML.replace(/\\d+px/, '✓ Copied');
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      btn.innerHTML = origText;
+    }, 1500);
+  } catch (e) {
+    // Fallback: open in new tab
+    window.open(url, '_blank');
+  }
+}
+</script>
 `
 
 function formatDate(timestamp: number): string {
@@ -215,6 +285,14 @@ export async function handleDashboard(c: Context): Promise<Response> {
     const links = result.results || []
     const totalClicks = links.reduce((sum, link) => sum + (link.clicks || 0), 0)
 
+    // Generate QR size buttons HTML for a given slug
+    const generateQrSizeButtons = (slug: string) => {
+      return qrSizePresets.map(preset => {
+        const qrUrl = `https://gitly.sh/${escapeHtml(slug)}/qr?size=${preset.size}`
+        return `<button class="qr-size-btn" title="${preset.title}" onclick="copyQrUrl(this, '${qrUrl}')">${copyIcon}${preset.label}</button>`
+      }).join('')
+    }
+
     // Generate HTML
     const linksHtml = links.length > 0 
       ? links.map(link => `
@@ -230,6 +308,9 @@ export async function handleDashboard(c: Context): Promise<Response> {
             <div class="meta">
               <span class="clicks">${link.clicks || 0} clicks</span>
               <span>Created ${formatDate(link.created_at)}</span>
+            </div>
+            <div class="qr-sizes">
+              ${generateQrSizeButtons(link.slug)}
             </div>
           </div>
         </div>
@@ -263,6 +344,7 @@ export async function handleDashboard(c: Context): Promise<Response> {
       <a href="https://github.com/andrewmurphyio/gitly.sh">gitly.sh</a> - URL shortener for developers
     </footer>
   </div>
+  ${copyScript}
 </body>
 </html>`
 
