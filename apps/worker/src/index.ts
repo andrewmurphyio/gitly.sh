@@ -63,8 +63,10 @@ app.use('*', async (c, next) => {
   c.header('X-Frame-Options', 'DENY')
   // HSTS - enforce HTTPS for 1 year including subdomains
   c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
-  // CSP - restrictive policy (no external resources needed)
-  c.header('Content-Security-Policy', "default-src 'none'")
+  // CSP - restrictive policy allowing only what's needed:
+  // - style-src 'unsafe-inline': dashboard uses inline <style> tag
+  // - img-src 'self': QR code images served from same origin
+  c.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'")
   // Referrer policy - send origin for cross-origin, full URL for same-origin
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin')
   // Permissions policy - disable sensitive browser features
