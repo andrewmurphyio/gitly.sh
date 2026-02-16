@@ -22,37 +22,40 @@ const styles = `
     margin: 0 auto;
   }
   header {
-    margin-bottom: 2rem;
-    padding-bottom: 1rem;
+    margin-bottom: 2.5rem;
+    padding-bottom: 1.5rem;
     border-bottom: 1px solid #333;
   }
   h1 {
-    font-size: 1.5rem;
+    font-size: 1.75rem;
     font-weight: 600;
     color: #fafafa;
+    letter-spacing: -0.025em;
   }
   h1 span { color: #888; }
   .stats {
-    margin-top: 0.5rem;
-    font-size: 0.875rem;
+    margin-top: 0.75rem;
+    font-size: 0.9rem;
     color: #888;
   }
   .links {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 1.5rem;
   }
   .link-card {
     background: #141414;
     border: 1px solid #333;
-    border-radius: 8px;
-    padding: 1rem;
+    border-radius: 12px;
+    padding: 1.25rem;
     display: flex;
-    gap: 1rem;
+    gap: 1.25rem;
     align-items: flex-start;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
   .link-card:hover {
     border-color: #555;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   }
   .qr-code {
     flex-shrink: 0;
@@ -70,30 +73,36 @@ const styles = `
   .link-info {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
   }
   .slug {
     font-weight: 600;
-    font-size: 1rem;
-    margin-bottom: 0.25rem;
+    font-size: 1.125rem;
   }
   .slug a {
     color: #60a5fa;
     text-decoration: none;
+    transition: color 0.15s ease;
   }
   .slug a:hover {
+    color: #93c5fd;
     text-decoration: underline;
   }
   .target {
     font-size: 0.875rem;
     color: #888;
     word-break: break-all;
-    margin-bottom: 0.5rem;
+    line-height: 1.4;
   }
   .meta {
     display: flex;
-    gap: 1rem;
-    font-size: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    font-size: 0.8rem;
     color: #666;
+    margin-top: 0.25rem;
   }
   .clicks {
     background: #1e3a5f;
@@ -125,14 +134,30 @@ const styles = `
     text-decoration: none;
   }
   @media (max-width: 480px) {
+    body {
+      padding: 1.5rem 1rem;
+    }
+    header {
+      margin-bottom: 2rem;
+    }
+    h1 {
+      font-size: 1.5rem;
+    }
+    .links {
+      gap: 1.25rem;
+    }
     .link-card {
       flex-direction: column;
       align-items: center;
       text-align: center;
+      padding: 1.25rem 1rem;
     }
     .qr-code {
-      width: 120px;
-      height: 120px;
+      width: 100px;
+      height: 100px;
+    }
+    .link-info {
+      align-items: center;
     }
     .meta {
       justify-content: center;
