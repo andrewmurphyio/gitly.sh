@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { handleQR } from './qr'
 import { handleLogo } from './logo'
+import { handleDashboard } from './dashboard'
 import { parseUserAgent, hashIP, validateHashSecret } from './ua-parser'
 import { constantTimeCompare } from './crypto'
 import { createRateLimiter, getClientIP, compositeKey, RateLimitBinding } from './rate-limit'
@@ -214,6 +215,10 @@ app.get('/api/analytics',
     return c.json({ error: 'Database error' }, 500)
   }
 })
+
+// User dashboard - public profile page showing all links
+// Route: /@username (e.g. gitly.sh/@andrewmurphyio)
+app.get('/@:username', handleDashboard)
 
 // Redirect handler with click tracking and rate limiting
 // Limit: 60 requests per 10 seconds per IP+slug combo (prevents click inflation)
