@@ -2,7 +2,7 @@ name: Sync Analytics
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Hourly
+    - cron: '21 * * * *'  # Hourly
   workflow_dispatch:
 
 # Force schedule re-registration (2026-02-16)
