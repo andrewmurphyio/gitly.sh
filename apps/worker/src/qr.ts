@@ -1,5 +1,5 @@
 import { Context } from 'hono'
-import QRCode from 'qrcode'
+import * as QRCode from 'qrcode'
 import { PhotonImage, SamplingFilter, resize, watermark } from '@cf-wasm/photon/workerd'
 import { validateUrlForFetch, safeFetch } from './url-validator'
 
