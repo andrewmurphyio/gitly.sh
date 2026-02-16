@@ -66,7 +66,13 @@ app.use('*', async (c, next) => {
   // CSP - restrictive policy allowing only what's needed:
   // - style-src 'unsafe-inline': dashboard uses inline <style> tag
   // - img-src 'self' data:: QR images from same origin, data URIs for logos embedded in SVG QR codes
-  c.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:")
+  // - script-src 'unsafe-inline': dashboard copy buttons need inline onclick handlers
+  const path = c.req.path
+  const isDashboard = path.startsWith('/@')
+  const csp = isDashboard
+    ? "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:"
+    : "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:"
+  c.header('Content-Security-Policy', csp)
   // Referrer policy - send origin for cross-origin, full URL for same-origin
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin')
   // Permissions policy - disable sensitive browser features
