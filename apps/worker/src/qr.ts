@@ -78,36 +78,77 @@ type Bindings = {
   LINKS: KVNamespace
 }
 
+interface LinkData {
+  url: string
+  createdAt: number
+  createdBy: string
+}
+
 interface QROptions {
   size: number
   format: 'png' | 'svg'
   logo?: string
   logoSize: number
+  autoLogo: boolean // Whether to try fetching user's logo.png from GitHub
 }
+
+// GitHub raw content URL for user logos
+const GITHUB_LOGO_BASE = 'https://raw.githubusercontent.com/andrewmurphyio/gitly.sh/main/links'
 
 function parseOptions(c: Context): QROptions {
   const size = Math.min(1024, Math.max(64, parseInt(c.req.query('size') || '256', 10)))
   const format = c.req.query('format') === 'svg' ? 'svg' : 'png'
   const logo = c.req.query('logo')
   const logoSize = Math.min(0.35, Math.max(0.15, parseFloat(c.req.query('logo_size') || '0.25')))
+  // autoLogo is true when no explicit logo param is provided
+  const autoLogo = logo === undefined
 
-  return { size, format, logo, logoSize }
+  return { size, format, logo, logoSize, autoLogo }
+}
+
+/**
+ * Try to fetch a user's logo.png from their GitHub folder
+ * Returns the logo URL if it exists, undefined otherwise
+ */
+async function tryGetUserLogo(username: string): Promise<string | undefined> {
+  if (!username || username === 'unknown') return undefined
+  
+  const logoUrl = `${GITHUB_LOGO_BASE}/${username}/logo.png`
+  
+  try {
+    // HEAD request to check if logo exists (faster than GET)
+    const response = await fetch(logoUrl, {
+      method: 'HEAD',
+      headers: { 'User-Agent': 'gitly.sh-worker/1.0' }
+    })
+    
+    if (response.ok) {
+      return logoUrl
+    }
+  } catch {
+    // Silently fail - logo just won't be used
+  }
+  
+  return undefined
 }
 
 /**
  * Build a normalized cache key URL that includes all query params affecting QR output.
  * This ensures different parameter combinations are cached separately.
  */
-function buildCacheKey(c: Context, slug: string, options: QROptions): string {
-  const url = new URL(c.req.url)
+function buildCacheKey(c: Context, slug: string, options: QROptions, resolvedLogo?: string): string {
   // Normalize the URL to ensure consistent cache keys
   // Include only params that affect output (size, format, logo, logo_size)
   const cacheUrl = new URL(`https://gitly.sh/${slug}/qr`)
   cacheUrl.searchParams.set('size', String(options.size))
   cacheUrl.searchParams.set('format', options.format)
-  if (options.logo) {
-    cacheUrl.searchParams.set('logo', options.logo)
+  // Use resolved logo (could be from query param or auto-detected)
+  if (resolvedLogo) {
+    cacheUrl.searchParams.set('logo', resolvedLogo)
     cacheUrl.searchParams.set('logo_size', String(options.logoSize))
+  } else if (options.autoLogo) {
+    // Mark that we checked for auto-logo but none was found
+    cacheUrl.searchParams.set('autologo', 'none')
   }
   return cacheUrl.toString()
 }
@@ -115,18 +156,33 @@ function buildCacheKey(c: Context, slug: string, options: QROptions): string {
 export async function handleQR(c: Context<{ Bindings: Bindings }>) {
   const slug = c.req.param('slug')
   
-  // Verify the link exists
-  const url = await c.env.LINKS.get(slug)
-  if (!url) {
+  // Verify the link exists and get link data
+  const linkDataRaw = await c.env.LINKS.get(slug)
+  if (!linkDataRaw) {
     return c.notFound()
+  }
+
+  // Parse link data to get username for auto-logo
+  let linkData: LinkData
+  try {
+    linkData = JSON.parse(linkDataRaw)
+  } catch {
+    // Legacy format: raw URL string
+    linkData = { url: linkDataRaw, createdAt: 0, createdBy: 'unknown' }
   }
 
   const options = parseOptions(c)
   
+  // Resolve logo: use explicit query param, or try auto-fetch from user's folder
+  let resolvedLogo = options.logo
+  if (options.autoLogo && linkData.createdBy && linkData.createdBy !== 'unknown') {
+    resolvedLogo = await tryGetUserLogo(linkData.createdBy)
+  }
+  
   // Use Cache API with explicit cache key including all query params
   // This ensures different size/format/logo combinations are cached separately
   const cache = caches.default
-  const cacheKey = buildCacheKey(c, slug, options)
+  const cacheKey = buildCacheKey(c, slug, options, resolvedLogo)
   const cacheRequest = new Request(cacheKey)
   
   // Check cache first
@@ -138,7 +194,7 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
   const targetUrl = `https://gitly.sh/${slug}`
 
   // Use higher error correction when logo is present
-  const errorCorrectionLevel = options.logo ? 'H' : 'M'
+  const errorCorrectionLevel = resolvedLogo ? 'H' : 'M'
 
   try {
     let response: Response
@@ -151,12 +207,12 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
         margin: 2,
       })
 
-      // If logo requested, fetch it server-side and embed as data URI
+      // If logo available (from query param or auto-detected), fetch and embed as data URI
       // This prevents viewer IP leakage from client-side logo fetches
       let finalSvg = svg
-      if (options.logo) {
+      if (resolvedLogo) {
         try {
-          const logoDataUri = await fetchLogoAsDataUri(options.logo)
+          const logoDataUri = await fetchLogoAsDataUri(resolvedLogo)
           finalSvg = embedLogoInSvg(svg, logoDataUri, options.size, options.logoSize)
         } catch (logoError) {
           console.warn('Logo fetch failed for SVG, using QR without logo:', logoError)
@@ -182,9 +238,9 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
 
       let outputBytes: Uint8Array
 
-      if (options.logo) {
+      if (resolvedLogo) {
         try {
-          outputBytes = await compositeLogoOnQR(buffer, options.logo, options.size, options.logoSize)
+          outputBytes = await compositeLogoOnQR(buffer, resolvedLogo, options.size, options.logoSize)
         } catch (logoError) {
           console.error('Logo compositing failed:', logoError)
           // Fall back to QR without logo

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { handleQR } from './qr'
+import { handleLogo } from './logo'
 import { parseUserAgent, hashIP, validateHashSecret } from './ua-parser'
 import { constantTimeCompare } from './crypto'
 import { createRateLimiter, getClientIP, compositeKey, RateLimitBinding } from './rate-limit'
@@ -100,6 +101,31 @@ app.get('/:slug/qr',
     }
   ),
   handleQR
+)
+
+// Logo endpoint - fetches user logo.png from GitHub with caching
+// Limit: 20 requests per 10 seconds per IP+username combo (lighter than QR since no image processing)
+app.get('/api/logo/:username',
+  createRateLimiter(
+    (c) => c.env.QR_RATE_LIMITER, // Reuse QR rate limiter
+    {
+      keyFunc: (c) => {
+        const ip = getClientIP(c)
+        const username = c.req.param('username')
+        return compositeKey(ip, `logo:${username}`)
+      },
+      errorResponse: (c) => c.json(
+        { 
+          error: 'Too Many Requests',
+          message: 'Logo fetch rate limit exceeded. Please wait before retrying.',
+          retryAfter: 10
+        },
+        429,
+        { 'Retry-After': '10' }
+      )
+    }
+  ),
+  handleLogo
 )
 
 // Analytics API - protected by API key with rate limiting

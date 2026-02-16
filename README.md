@@ -55,6 +55,48 @@ portfolio,https://octocat.io
 
 If you want to claim a folder that doesn't match your GitHub username, [open an issue](https://github.com/andrewmurphyio/gitly.sh/issues/new) to request it.
 
+## Custom Logo
+
+You can add a logo that appears in QR codes for your links.
+
+### Adding Your Logo
+
+1. Add a `logo.png` file to your folder: `links/<your-username>/logo.png`
+2. Requirements:
+   - **Format:** PNG only
+   - **Size:** Max 2MB
+   - **Recommended dimensions:** 200x200 to 500x500 pixels (square works best)
+
+### How It Works
+
+Once you add a `logo.png`, it will automatically be used when generating QR codes for your links:
+
+```
+https://gitly.sh/<your-slug>/qr
+```
+
+The logo appears centered in the QR code with a white background for readability.
+
+### Logo API
+
+You can also fetch your logo directly:
+
+```
+https://gitly.sh/api/logo/<your-username>
+```
+
+**Responses:**
+- `200` — Logo found, returns `image/png`
+- `204` — No logo exists for this user
+
+### Overriding the Logo
+
+You can override the default logo for any QR code using the `logo` query parameter:
+
+```
+https://gitly.sh/<slug>/qr?logo=https://example.com/my-other-logo.png
+```
+
 ## Analytics
 
 Every click on your short links is tracked automatically. Analytics data is exported to your folder as CSV files — no dashboard login required.
