@@ -155,10 +155,14 @@ function buildCacheKey(c: Context, slug: string, options: QROptions, resolvedLog
 
 export async function handleQR(c: Context<{ Bindings: Bindings }>) {
   const slug = c.req.param('slug')
+  const requestId = crypto.randomUUID().slice(0, 8) // Short ID for log correlation
+  
+  console.log(`[QR:${requestId}] Starting QR generation for slug: ${slug}`)
   
   // Verify the link exists and get link data
   const linkDataRaw = await c.env.LINKS.get(slug)
   if (!linkDataRaw) {
+    console.log(`[QR:${requestId}] Link not found: ${slug}`)
     return c.notFound()
   }
 
@@ -166,17 +170,22 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
   let linkData: LinkData
   try {
     linkData = JSON.parse(linkDataRaw)
-  } catch {
+    console.log(`[QR:${requestId}] Link data parsed: createdBy=${linkData.createdBy}`)
+  } catch (parseError) {
     // Legacy format: raw URL string
+    console.log(`[QR:${requestId}] Legacy link format detected, using raw URL`)
     linkData = { url: linkDataRaw, createdAt: 0, createdBy: 'unknown' }
   }
 
   const options = parseOptions(c)
+  console.log(`[QR:${requestId}] Options: size=${options.size}, format=${options.format}, autoLogo=${options.autoLogo}, logo=${options.logo || 'none'}`)
   
   // Resolve logo: use explicit query param, or try auto-fetch from user's folder
   let resolvedLogo = options.logo
   if (options.autoLogo && linkData.createdBy && linkData.createdBy !== 'unknown') {
+    console.log(`[QR:${requestId}] Attempting auto-logo fetch for user: ${linkData.createdBy}`)
     resolvedLogo = await tryGetUserLogo(linkData.createdBy)
+    console.log(`[QR:${requestId}] Auto-logo result: ${resolvedLogo || 'none found'}`)
   }
   
   // Use Cache API with explicit cache key including all query params
@@ -188,10 +197,12 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
   // Check cache first
   const cachedResponse = await cache.match(cacheRequest)
   if (cachedResponse) {
+    console.log(`[QR:${requestId}] Returning cached response`)
     return cachedResponse
   }
 
   const targetUrl = `https://gitly.sh/${slug}`
+  console.log(`[QR:${requestId}] Generating QR for URL: ${targetUrl}`)
 
   // Use higher error correction when logo is present
   const errorCorrectionLevel = resolvedLogo ? 'H' : 'M'
@@ -200,22 +211,38 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
     let response: Response
 
     if (options.format === 'svg') {
-      const svg = await QRCode.toString(targetUrl, {
-        type: 'svg',
-        width: options.size,
-        errorCorrectionLevel,
-        margin: 2,
-      })
+      console.log(`[QR:${requestId}] Generating SVG QR code`)
+      let svg: string
+      try {
+        svg = await QRCode.toString(targetUrl, {
+          type: 'svg',
+          width: options.size,
+          errorCorrectionLevel,
+          margin: 2,
+        })
+        console.log(`[QR:${requestId}] SVG generated successfully, length=${svg.length}`)
+      } catch (svgError) {
+        const errorMessage = svgError instanceof Error ? svgError.message : String(svgError)
+        console.error(`[QR:${requestId}] SVG generation failed: ${errorMessage}`, svgError)
+        return c.json({ 
+          error: 'Failed to generate QR code', 
+          details: `SVG generation error: ${errorMessage}`,
+          requestId 
+        }, 500)
+      }
 
       // If logo available (from query param or auto-detected), fetch and embed as data URI
       // This prevents viewer IP leakage from client-side logo fetches
       let finalSvg = svg
       if (resolvedLogo) {
         try {
+          console.log(`[QR:${requestId}] Fetching logo for SVG embed: ${resolvedLogo}`)
           const logoDataUri = await fetchLogoAsDataUri(resolvedLogo)
           finalSvg = embedLogoInSvg(svg, logoDataUri, options.size, options.logoSize)
+          console.log(`[QR:${requestId}] Logo embedded successfully`)
         } catch (logoError) {
-          console.warn('Logo fetch failed for SVG, using QR without logo:', logoError)
+          const errorMessage = logoError instanceof Error ? logoError.message : String(logoError)
+          console.warn(`[QR:${requestId}] Logo fetch failed for SVG, using QR without logo: ${errorMessage}`, logoError)
           // Fall back to QR without logo
         }
       }
@@ -229,20 +256,36 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
       })
     } else {
       // PNG output with optional logo compositing via photon
-      const buffer = await QRCode.toBuffer(targetUrl, {
-        type: 'png',
-        width: options.size,
-        errorCorrectionLevel,
-        margin: 2,
-      })
+      console.log(`[QR:${requestId}] Generating PNG QR code`)
+      let buffer: Buffer
+      try {
+        buffer = await QRCode.toBuffer(targetUrl, {
+          type: 'png',
+          width: options.size,
+          errorCorrectionLevel,
+          margin: 2,
+        })
+        console.log(`[QR:${requestId}] PNG buffer generated, size=${buffer.length} bytes`)
+      } catch (pngError) {
+        const errorMessage = pngError instanceof Error ? pngError.message : String(pngError)
+        console.error(`[QR:${requestId}] PNG generation failed: ${errorMessage}`, pngError)
+        return c.json({ 
+          error: 'Failed to generate QR code', 
+          details: `PNG generation error: ${errorMessage}`,
+          requestId 
+        }, 500)
+      }
 
       let outputBytes: Uint8Array
 
       if (resolvedLogo) {
         try {
+          console.log(`[QR:${requestId}] Compositing logo onto PNG: ${resolvedLogo}`)
           outputBytes = await compositeLogoOnQR(buffer, resolvedLogo, options.size, options.logoSize)
+          console.log(`[QR:${requestId}] Logo composited successfully, output size=${outputBytes.length} bytes`)
         } catch (logoError) {
-          console.error('Logo compositing failed:', logoError)
+          const errorMessage = logoError instanceof Error ? logoError.message : String(logoError)
+          console.error(`[QR:${requestId}] Logo compositing failed: ${errorMessage}`, logoError)
           // Fall back to QR without logo
           outputBytes = new Uint8Array(buffer)
         }
@@ -260,12 +303,20 @@ export async function handleQR(c: Context<{ Bindings: Bindings }>) {
     }
 
     // Store in cache with the explicit key (clone since response body is consumed)
+    console.log(`[QR:${requestId}] Caching response`)
     c.executionCtx.waitUntil(cache.put(cacheRequest, response.clone()))
 
+    console.log(`[QR:${requestId}] QR generation complete`)
     return response
   } catch (error) {
-    console.error('QR generation failed:', error)
-    return c.json({ error: 'Failed to generate QR code' }, 500)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const errorStack = error instanceof Error ? error.stack : undefined
+    console.error(`[QR:${requestId}] QR generation failed unexpectedly: ${errorMessage}`, { error, stack: errorStack })
+    return c.json({ 
+      error: 'Failed to generate QR code', 
+      details: errorMessage,
+      requestId 
+    }, 500)
   }
 }
 
@@ -278,10 +329,15 @@ async function compositeLogoOnQR(
   size: number,
   logoSizeRatio: number
 ): Promise<Uint8Array> {
+  console.log(`[compositeLogoOnQR] Starting. logoUrl=${logoUrl}, size=${size}, logoSizeRatio=${logoSizeRatio}`)
+  
   // Validate and fetch the logo image with SSRF protection, size limit, and content-type validation
+  console.log(`[compositeLogoOnQR] Fetching logo with size limit`)
   const logoResponse = await fetchLogoWithSizeLimit(logoUrl)
   
+  console.log(`[compositeLogoOnQR] Logo fetch response: status=${logoResponse.status}`)
   const logoBuffer = await logoResponse.arrayBuffer()
+  console.log(`[compositeLogoOnQR] Logo buffer size: ${logoBuffer.byteLength} bytes`)
   
   // Verify actual size after download (Content-Length can be spoofed or missing)
   if (logoBuffer.byteLength > MAX_LOGO_SIZE) {
@@ -292,56 +348,112 @@ async function compositeLogoOnQR(
   
   // Defense-in-depth: Validate magic bytes match the declared content-type
   const contentType = logoResponse.headers.get('content-type')?.split(';')[0]?.trim() ?? ''
+  console.log(`[compositeLogoOnQR] Logo content-type: ${contentType}`)
   if (!validateImageMagicBytes(logoBytes, contentType)) {
     throw new Error(`Logo file signature does not match content-type: ${contentType}`)
   }
   
   // Load QR code as PhotonImage
-  const qrImage = PhotonImage.new_from_byteslice(new Uint8Array(qrBuffer))
+  console.log(`[compositeLogoOnQR] Loading QR image into Photon`)
+  let qrImage: PhotonImage
+  try {
+    qrImage = PhotonImage.new_from_byteslice(new Uint8Array(qrBuffer))
+  } catch (e) {
+    const errorMessage = e instanceof Error ? e.message : String(e)
+    throw new Error(`Failed to load QR image into Photon: ${errorMessage}`)
+  }
   
   // Load logo as PhotonImage
+  console.log(`[compositeLogoOnQR] Loading logo image into Photon`)
   let logoImage: PhotonImage
   try {
     logoImage = PhotonImage.new_from_byteslice(logoBytes)
   } catch (e) {
     qrImage.free()
-    throw new Error('Failed to decode logo image')
+    const errorMessage = e instanceof Error ? e.message : String(e)
+    throw new Error(`Failed to decode logo image: ${errorMessage}`)
   }
   
   // Calculate target logo dimensions
   const logoPixels = Math.round(size * logoSizeRatio)
   const padding = Math.round(logoPixels * 0.15) // 15% padding for white background
+  console.log(`[compositeLogoOnQR] Logo dimensions: logoPixels=${logoPixels}, padding=${padding}`)
   
   // Resize logo to target size
-  const resizedLogo = resize(
-    logoImage,
-    logoPixels,
-    logoPixels,
-    SamplingFilter.Lanczos3 // High quality resize
-  )
+  console.log(`[compositeLogoOnQR] Resizing logo`)
+  let resizedLogo: PhotonImage
+  try {
+    resizedLogo = resize(
+      logoImage,
+      logoPixels,
+      logoPixels,
+      SamplingFilter.Lanczos3 // High quality resize
+    )
+  } catch (e) {
+    logoImage.free()
+    qrImage.free()
+    const errorMessage = e instanceof Error ? e.message : String(e)
+    throw new Error(`Failed to resize logo: ${errorMessage}`)
+  }
   logoImage.free()
   
   // Create white background for logo
   const bgSize = logoPixels + padding * 2
-  const whiteBackground = createWhiteImage(bgSize, bgSize)
+  console.log(`[compositeLogoOnQR] Creating white background, size=${bgSize}`)
+  let whiteBackground: PhotonImage
+  try {
+    whiteBackground = createWhiteImage(bgSize, bgSize)
+  } catch (e) {
+    resizedLogo.free()
+    qrImage.free()
+    const errorMessage = e instanceof Error ? e.message : String(e)
+    throw new Error(`Failed to create white background: ${errorMessage}`)
+  }
   
   // Composite logo onto white background (centered)
   // watermark takes bigint for x,y coordinates
-  watermark(whiteBackground, resizedLogo, BigInt(padding), BigInt(padding))
+  console.log(`[compositeLogoOnQR] Compositing logo onto white background`)
+  try {
+    watermark(whiteBackground, resizedLogo, BigInt(padding), BigInt(padding))
+  } catch (e) {
+    resizedLogo.free()
+    whiteBackground.free()
+    qrImage.free()
+    const errorMessage = e instanceof Error ? e.message : String(e)
+    throw new Error(`Failed to watermark logo onto background: ${errorMessage}`)
+  }
   resizedLogo.free()
   
   // Calculate center position on QR code
   const centerX = Math.round((size - bgSize) / 2)
   const centerY = Math.round((size - bgSize) / 2)
+  console.log(`[compositeLogoOnQR] Centering on QR: centerX=${centerX}, centerY=${centerY}`)
   
   // Composite the logo-with-background onto the QR code
-  watermark(qrImage, whiteBackground, BigInt(centerX), BigInt(centerY))
+  console.log(`[compositeLogoOnQR] Compositing logo+background onto QR code`)
+  try {
+    watermark(qrImage, whiteBackground, BigInt(centerX), BigInt(centerY))
+  } catch (e) {
+    whiteBackground.free()
+    qrImage.free()
+    const errorMessage = e instanceof Error ? e.message : String(e)
+    throw new Error(`Failed to watermark logo onto QR code: ${errorMessage}`)
+  }
   whiteBackground.free()
   
   // Get output bytes as PNG
-  const outputBytes = qrImage.get_bytes()
+  console.log(`[compositeLogoOnQR] Extracting output bytes`)
+  let outputBytes: Uint8Array
+  try {
+    outputBytes = qrImage.get_bytes()
+  } catch (e) {
+    qrImage.free()
+    const errorMessage = e instanceof Error ? e.message : String(e)
+    throw new Error(`Failed to get output bytes from QR image: ${errorMessage}`)
+  }
   qrImage.free()
   
+  console.log(`[compositeLogoOnQR] Complete. Output size=${outputBytes.length} bytes`)
   return outputBytes
 }
 
