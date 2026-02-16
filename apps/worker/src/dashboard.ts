@@ -159,6 +159,13 @@ const styles = `
     height: 12px;
     flex-shrink: 0;
   }
+  .qr-size-btn svg.spin {
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
   .empty {
     text-align: center;
     padding: 3rem 1rem;
@@ -343,25 +350,77 @@ export async function handleDashboard(c: Context): Promise<Response> {
       btn.addEventListener('click', async (e) => {
         e.preventDefault();
         const url = btn.dataset.url;
+        const originalHtml = btn.innerHTML;
+        
+        // Show loading state
+        btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="spin"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>';
+        
         try {
-          await navigator.clipboard.writeText(url);
+          // Fetch the QR image
+          const response = await fetch(url);
+          const blob = await response.blob();
+          
+          // Try to copy image to clipboard (modern browsers)
+          if (navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+            // Convert to PNG blob if needed (clipboard requires image/png)
+            let pngBlob = blob;
+            if (blob.type !== 'image/png') {
+              // Convert via canvas
+              const img = new Image();
+              const canvas = document.createElement('canvas');
+              await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+                img.src = URL.createObjectURL(blob);
+              });
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0);
+              pngBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+              URL.revokeObjectURL(img.src);
+            }
+            
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': pngBlob })
+            ]);
+          } else {
+            // Fallback: copy URL for older browsers
+            await navigator.clipboard.writeText(url);
+          }
+          
           btn.classList.add('copied');
-          const originalHtml = btn.innerHTML;
           btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg> Copied!';
           setTimeout(() => {
             btn.classList.remove('copied');
             btn.innerHTML = originalHtml;
           }, 1500);
         } catch (err) {
-          // Fallback: select text in a temporary input
-          const input = document.createElement('input');
-          input.value = url;
-          document.body.appendChild(input);
-          input.select();
-          document.execCommand('copy');
-          document.body.removeChild(input);
-          btn.classList.add('copied');
-          setTimeout(() => btn.classList.remove('copied'), 1500);
+          console.error('Copy failed:', err);
+          // Fallback: copy URL as text
+          try {
+            await navigator.clipboard.writeText(url);
+            btn.classList.add('copied');
+            btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg> URL copied';
+            setTimeout(() => {
+              btn.classList.remove('copied');
+              btn.innerHTML = originalHtml;
+            }, 1500);
+          } catch (fallbackErr) {
+            // Last resort: use deprecated execCommand
+            const input = document.createElement('input');
+            input.value = url;
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand('copy');
+            document.body.removeChild(input);
+            btn.classList.add('copied');
+            btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg> URL copied';
+            setTimeout(() => {
+              btn.classList.remove('copied');
+              btn.innerHTML = originalHtml;
+            }, 1500);
+          }
         }
       });
     });
